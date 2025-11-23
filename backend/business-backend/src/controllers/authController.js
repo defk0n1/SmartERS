@@ -1,4 +1,3 @@
-// src/controllers/authController.js
 import User from "../models/User.js";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../utils/tokens.js";
 
