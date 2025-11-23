@@ -9,13 +9,20 @@ import User from "../models/User.js";
 import connectDB from "../config/db.js";
 
 describe("Incident Model Test", function () {
-    let driver, ambulance;
+    let operator, driver, ambulance;
 
     before(async () => {
         await connectDB();
         await Incident.deleteMany({});
         await Ambulance.deleteMany({});
         await User.deleteMany({});
+
+        operator = await new User({
+            name: "Operator Test",
+            email: "operator2@test.com",
+            password: "123456",
+            role: "operator",
+        }).save();
 
         driver = await new User({
             name: "Driver Test",
@@ -45,6 +52,7 @@ describe("Incident Model Test", function () {
             location: { type: "Point", coordinates: [5, 5] },
             severity: "high",
             assignedAmbulance: ambulance._id,
+            reportedBy: operator._id,
         });
 
         const saved = await incident.save();
