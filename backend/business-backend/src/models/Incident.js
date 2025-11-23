@@ -30,6 +30,11 @@ const incidentSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: "Ambulance",
     },
+    reportedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        required: true,
+    },
 }, { timestamps: true });
 
 // Geospatial index for mapping and routing

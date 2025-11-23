@@ -1,9 +1,18 @@
 import express from "express";
+import {
+    getAllIncidents,
+    getIncidentById,
+    createIncident,
+    updateIncident,
+    deleteIncident,
+} from "../controllers/incidentController.js";
+
 const router = express.Router();
 
-// Test route
-router.get("/", (req, res) => {
-  res.send("Incident routes are working");
-});
+router.get("/", getAllIncidents);
+router.get("/:id", getIncidentById);
+router.post("/", createIncident);
+router.put("/:id", updateIncident);
+router.delete("/:id", deleteIncident);
 
 export default router;
