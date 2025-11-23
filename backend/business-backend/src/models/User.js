@@ -21,6 +21,8 @@ const userSchema = new mongoose.Schema({
         enum: ["operator", "driver"],
         default: "operator",
     },
+    refreshToken: { type: String, default: null } // store current refresh token
+
 }, { timestamps: true });
 
 // Hash password before saving
@@ -33,7 +35,7 @@ userSchema.pre("save", async function (next) {
 });
 
 // Compare Password method for login
-userSchema.methods.matchPassword = async function (enteredPassword) {
+userSchema.methods.comparePassword = async function (enteredPassword) {
     return await bcrypt.compare(enteredPassword, this.password);
 };
 

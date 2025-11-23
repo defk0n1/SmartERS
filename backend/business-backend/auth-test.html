@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Auth Test Interface</title>
+    <style>
+        body { font-family: Arial; margin: 40px; }
+        input, button, select { margin: 5px 0; padding: 8px; width: 250px; }
+        button { cursor: pointer; }
+        .section { border: 1px solid #ddd; padding: 15px; margin-bottom: 25px; }
+        pre { background: #f5f5f5; padding: 10px; max-height: 200px; overflow-y: auto; }
+    </style>
+</head>
+<body>
+<h1>Authentication Test Interface</h1>
+
+<!-- REGISTER -->
+<div class="section">
+    <h2>Register</h2>
+    <input id="reg-name" placeholder="Name"><br>
+    <input id="reg-email" placeholder="Email"><br>
+    <input id="reg-password" placeholder="Password" type="password"><br>
+    <select id="reg-role">
+        <option value="operator">operator</option>
+        <option value="driver">driver</option>
+    </select><br>
+    <button onclick="register()">Register</button>
+    <p id="reg-result"></p>
+</div>
+
+<!-- LOGIN -->
+<div class="section">
+    <h2>Login</h2>
+    <input id="log-email" placeholder="Email"><br>
+    <input id="log-password" placeholder="Password" type="password"><br>
+    <button onclick="login()">Login</button>
+    <button onclick="logout()">Logout</button>
+    <p id="log-result"></p>
+</div>
+
+<!-- TOKENS -->
+<div class="section">
+    <h2>Stored Access Token</h2>
+    <button onclick="showTokens()">Show Access Token</button>
+    <button onclick="manualRefresh()">Refresh Access Token</button>
+    <pre id="token-display"></pre>
+</div>
+
+<!-- TEST AUTH CALL -->
+<div class="section">
+    <h2>Test Authenticated API</h2>
+    <input id="test-url" placeholder="Endpoint (ex: /api/incidents)"><br>
+    <button onclick="testAuthCall()">Send Request</button>
+    <pre id="test-output"></pre>
+</div>
+
+<script>
+const API = "http://localhost:5000"; // adjust to your backend
+let accessToken = null;
+
+// ========================
+// Token utilities
+// ========================
+function saveAccessToken(token) {
+    accessToken = token;
+}
+
+function showTokens() {
+    document.getElementById("token-display").innerText =
+        JSON.stringify({ accessToken }, null, 2);
+}
+
+// ========================
+// Auth functions
+// ========================
+async function register() {
+    const res = await fetch(`${API}/api/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            name: document.getElementById("reg-name").value,
+            email: document.getElementById("reg-email").value,
+            password: document.getElementById("reg-password").value,
+            role: document.getElementById("reg-role").value
+        })
+    });
+    const data = await res.json();
+    document.getElementById("reg-result").innerText = JSON.stringify(data, null, 2);
+}
+
+async function login() {
+    const res = await fetch(`${API}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            email: document.getElementById("log-email").value,
+            password: document.getElementById("log-password").value
+        }),
+        credentials: "include" // important: store refresh token in cookie
+    });
+
+    const data = await res.json();
+    if (res.ok && data.accessToken) {
+        saveAccessToken(data.accessToken);
+    }
+    document.getElementById("log-result").innerText = JSON.stringify(data, null, 2);
+}
+
+// ========================
+// Logout
+// ========================
+async function logout() {
+    await fetch(`${API}/api/auth/logout`, {
+        method: "POST",
+        credentials: "include"
+    });
+    accessToken = null;
+    showTokens();
+    alert("Logged out, refresh token cookie cleared.");
+}
+
+// ========================
+// Manual refresh
+// ========================
+async function manualRefresh() {
+    try {
+        const res = await fetch(`${API}/api/auth/refresh`, {
+            method: "GET",
+            credentials: "include" // send cookie
+        });
+        const data = await res.json();
+        if (res.ok && data.accessToken) {
+            saveAccessToken(data.accessToken);
+            alert("Access token refreshed!");
+        } else {
+            alert("Refresh failed, login again.");
+        }
+        showTokens();
+    } catch (err) {
+        alert("Error refreshing token");
+    }
+}
+
+// ========================
+// Fetch with auto-refresh
+// ========================
+async function fetchWithRefresh(url, options = {}) {
+    if (!options.headers) options.headers = {};
+    options.headers["Authorization"] = "Bearer " + accessToken;
+    options.credentials = "include";
+
+    let res = await fetch(url, options);
+    if (res.status === 401) {
+        await manualRefresh();
+        options.headers["Authorization"] = "Bearer " + accessToken;
+        res = await fetch(url, options);
+    }
+    return res;
+}
+
+// ========================
+// Test authenticated API
+// ========================
+async function testAuthCall() {
+    const endpoint = document.getElementById("test-url").value;
+    try {
+        const res = await fetchWithRefresh(`${API}${endpoint}`);
+        const data = await res.json();
+        document.getElementById("test-output").innerText = JSON.stringify(data, null, 2);
+    } catch (err) {
+        document.getElementById("test-output").innerText = "Error: " + err;
+    }
+}
+</script>
+</body>
+</html>
