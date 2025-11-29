@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Test - SmartERS</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h2 {
+            margin-top: 0;
+            color: #333;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .connected {
+            background: #d4edda;
+            color: #155724;
+        }
+        .disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .log {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .log-entry {
+            margin: 5px 0;
+            padding: 5px;
+            border-left: 3px solid #007bff;
+            background: white;
+        }
+        input {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin: 5px;
+            width: 200px;
+        }
+    </style>
+</head>
+<body>
+<h1>🚑 SmartERS WebSocket Test Client</h1>
+
+<div class="container">
+    <h2>Connection Status</h2>
+    <div id="status" class="status disconnected">Disconnected</div>
+    <button onclick="connect()">Connect</button>
+    <button onclick="disconnect()">Disconnect</button>
+</div>
+
+<div class="container">
+    <h2>Dashboard Actions</h2>
+    <button onclick="joinDashboard()">Join Dashboard</button>
+</div>
+
+<div class="container">
+    <h2>Ambulance Simulation</h2>
+    <input type="text" id="ambulanceId" placeholder="Ambulance ID" value="673cf123456789abcdef0000">
+    <button onclick="joinAmbulance()">Join as Ambulance</button>
+    <br><br>
+    <button onclick="updateLocation()">Update Location</button>
+    <button onclick="changeStatus('available')">Set Available</button>
+    <button onclick="changeStatus('en-route')">Set En-Route</button>
+    <button onclick="changeStatus('busy')">Set Busy</button>
+</div>
+
+<div class="container">
+    <h2>Incident Simulation</h2>
+    <button onclick="reportIncident()">Report New Incident</button>
+    <button onclick="assignIncident()">Assign Incident</button>
+    <button onclick="completeIncident()">Complete Incident</button>
+</div>
+
+<div class="container">
+    <h2>Event Log</h2>
+    <button onclick="clearLog()">Clear Log</button>
+    <div id="log" class="log"></div>
+</div>
+
+<script>
+    let socket;
+    const logDiv = document.getElementById('log');
+    const statusDiv = document.getElementById('status');
+
+    function log(message, type = 'info') {
+        const entry = document.createElement('div');
+        entry.className = 'log-entry';
+        entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+        logDiv.insertBefore(entry, logDiv.firstChild);
+    }
+
+    function connect() {
+        if (socket) {
+            log('Already connected', 'warning');
+            return;
+        }
+
+        socket = io('http://localhost:5000', {
+            transports: ['websocket'],
+            reconnection: true
+        });
+
+        socket.on('connect', () => {
+            log('✅ Connected to server');
+            statusDiv.className = 'status connected';
+            statusDiv.textContent = 'Connected';
+        });
+
+        socket.on('disconnect', () => {
+            log('❌ Disconnected from server');
+            statusDiv.className = 'status disconnected';
+            statusDiv.textContent = 'Disconnected';
+        });
+
+        // Listen to all events
+        socket.onAny((eventName, data) => {
+            log(`📡 Received: ${eventName}`, 'event');
+            console.log(eventName, data);
+        });
+
+        // Specific event listeners
+        socket.on('ambulance:location:updated', (data) => {
+            log(`🚑 Ambulance ${data.ambulanceId} location updated: [${data.location.coordinates}]`);
+        });
+
+        socket.on('ambulance:status:changed', (data) => {
+            log(`🔄 Ambulance ${data.ambulanceId} status: ${data.status}`);
+        });
+
+        socket.on('incident:created', (data) => {
+            log(`🚨 New incident: ${data.description} - Severity: ${data.severity}`);
+        });
+
+        socket.on('incident:assigned', (data) => {
+            log(`📌 Incident ${data.incidentId} assigned to you!`);
+        });
+
+        socket.on('incident:assignment:updated', (data) => {
+            log(`📋 Incident ${data.incidentId} assigned to ambulance ${data.ambulanceId}`);
+        });
+
+        socket.on('incident:completed', (data) => {
+            log(`✅ Incident ${data.incidentId} completed`);
+        });
+    }
+
+    function disconnect() {
+        if (socket) {
+            socket.disconnect();
+            socket = null;
+        }
+    }
+
+    function joinDashboard() {
+        if (!socket) {
+            log('❌ Not connected', 'error');
+            return;
+        }
+        socket.emit('dashboard:join');
+        log('📊 Joined dashboard room');
+    }
+
+    function joinAmbulance() {
+        if (!socket) {
+            log('❌ Not connected', 'error');
+            return;
+        }
+        const id = document.getElementById('ambulanceId').value;
+        socket.emit('ambulance:join', id);
+        log(`🚑 Joined as ambulance: ${id}`);
+    }
+
+    function updateLocation() {
+        if (!socket) {
+            log('❌ Not connected', 'error');
+            return;
+        }
+        const id = document.getElementById('ambulanceId').value;
+        const location = {
+            type: 'Point',
+            coordinates: [
+                (Math.random() * 360 - 180).toFixed(6),
+                (Math.random() * 180 - 90).toFixed(6)
+            ]
+        };
+        socket.emit('ambulance:location:update', {
+            ambulanceId: id,
+            location: location,
+            status: 'en-route'
+        });
+        log(`📍 Sent location update: [${location.coordinates}]`);
+    }
+
+    function changeStatus(status) {
+        if (!socket) {
+            log('❌ Not connected', 'error');
+            return;
+        }
+        const id = document.getElementById('ambulanceId').value;
+        socket.emit('ambulance:status:change', {
+            ambulanceId: id,
+            status: status
+        });
+        log(`🔄 Status changed to: ${status}`);
+    }
+
+    function reportIncident() {
+        if (!socket) {
+            log('❌ Not connected', 'error');
+            return;
+        }
+        socket.emit('incident:new', {
+            description: 'Test emergency incident',
+            location: {
+                type: 'Point',
+                coordinates: [10.5, 20.3]
+            },
+            severity: 'high',
+            status: 'pending'
+        });
+        log('🚨 Reported new incident');
+    }
+
+    function assignIncident() {
+        if (!socket) {
+            log('❌ Not connected', 'error');
+            return;
+        }
+        const id = document.getElementById('ambulanceId').value;
+        socket.emit('incident:assign', {
+            incidentId: '673cf000000000000000000',
+            ambulanceId: id
+        });
+        log('📌 Assigned incident to ambulance');
+    }
+
+    function completeIncident() {
+        if (!socket) {
+            log('❌ Not connected', 'error');
+            return;
+        }
+        const id = document.getElementById('ambulanceId').value;
+        socket.emit('incident:complete', {
+            incidentId: '673cf000000000000000000',
+            ambulanceId: id
+        });
+        log('✅ Completed incident');
+    }
+
+    function clearLog() {
+        logDiv.innerHTML = '';
+    }
+
+    // Auto-connect on load
+    window.addEventListener('load', () => {
+        log('🌐 Page loaded. Click "Connect" to start.');
+    });
+</script>
+</body>
+</html>

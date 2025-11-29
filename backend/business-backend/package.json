@@ -26,7 +26,8 @@
     "express-rate-limit": "^8.2.1",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.20.1",
-    "morgan": "^1.10.1"
+    "morgan": "^1.10.1",
+    "socket.io": "^4.8.1"
   },
   "devDependencies": {
     "@types/chai-http": "^3.0.5",
