@@ -1,0 +1,182 @@
+/* frontend/src/styles/DriverView.css */
+.driver-view {
+    min-height: 100vh;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: 20px;
+}
+
+.driver-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: white;
+    padding: 20px 30px;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    margin-bottom: 30px;
+}
+
+.driver-header h1 {
+    margin: 0;
+    font-size: 28px;
+    color: #2c3e50;
+}
+
+.driver-content {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.card {
+    background: white;
+    padding: 25px;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.card h2 {
+    margin: 0 0 20px 0;
+    font-size: 20px;
+    color: #2c3e50;
+    border-bottom: 2px solid #667eea;
+    padding-bottom: 10px;
+}
+
+.status-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.status-btn {
+    padding: 15px;
+    border: 2px solid #e1e8ed;
+    background: white;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.status-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.status-btn.active {
+    color: white;
+    border-color: transparent;
+}
+
+.status-btn.active.available { background: #28a745; }
+.status-btn.active.en-route { background: #ffc107; }
+.status-btn.active.busy { background: #dc3545; }
+
+.current-status {
+    text-align: center;
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    font-size: 16px;
+}
+
+.tracking-info {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+}
+
+.tracking-info p {
+    margin: 8px 0;
+    font-size: 14px;
+    color: #555;
+}
+
+.tracking-btn {
+    width: 100%;
+    padding: 15px;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.tracking-btn.start {
+    background: #28a745;
+    color: white;
+}
+
+.tracking-btn.start:hover { background: #218838; }
+
+.tracking-btn.stop {
+    background: #dc3545;
+    color: white;
+}
+
+.tracking-btn.stop:hover { background: #c82333; }
+
+.incident-card.alert {
+    border: 3px solid #dc3545;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        box-shadow: 0 4px 12px rgba(220, 53, 69, 0.3);
+    }
+    50% {
+        box-shadow: 0 4px 20px rgba(220, 53, 69, 0.6);
+    }
+}
+
+.severity-badge {
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-weight: 600;
+    color: white;
+    text-transform: uppercase;
+    font-size: 12px;
+}
+
+.severity-badge.low { background: #17a2b8; }
+.severity-badge.medium { background: #ffc107; }
+.severity-badge.high { background: #fd7e14; }
+.severity-badge.critical { background: #dc3545; }
+
+.navigate-btn {
+    width: 100%;
+    padding: 15px;
+    background: #007bff;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 15px;
+    transition: all 0.3s;
+}
+
+.navigate-btn:hover {
+    background: #0056b3;
+    transform: translateY(-2px);
+}
+
+.no-incident {
+    text-align: center;
+    color: #95a5a6;
+}
+
+@media (max-width: 768px) {
+    .driver-content {
+        grid-template-columns: 1fr;
+    }
+}

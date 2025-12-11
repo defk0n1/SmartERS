@@ -10,7 +10,7 @@ import ambulanceRoutes from "./routes/ambulanceRoutes.js";
 const app = express();
 
 // Middlewares
-const allowedOrigins = ["http://localhost:5500"]; // the origin of your HTML interface
+const allowedOrigins = ["http://localhost:5500","http://localhost:3000", "http://localhost:5500"]; // the origin of your HTML interface
 app.use(cors({
     origin: allowedOrigins,
     credentials: true // VERY IMPORTANT for cookies
