@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "@esri/arcgis-rest-geocoding": "^4.0.3"
+  }
+}

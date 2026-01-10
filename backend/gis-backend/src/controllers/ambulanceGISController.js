@@ -1,4 +1,5 @@
 import { addAmbulance, queryAmbulances, updateAmbulance } from "../services/arcgisFeatureService.js";
+import routingService from "../services/routingService.js";
 import { getIO } from "../socket/realtime.js";
 
 export async function createAmbulance(req, res) {
@@ -40,4 +41,32 @@ export async function updateAmbulances(req, res) {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+}
+
+export async function startAmbulanceSimulation(req, res) {
+  try {
+    const { ambulanceId, start, end, speed } = req.body;
+
+    const routeResult = await routingService.getOptimalRoute(start, end);
+
+    if (!routeResult.route) {
+      return res.status(400).json({ error: "Unable to compute route" });
+    }
+
+    const path = routeResult.route.geometry.paths[0].map(([longitude, latitude]) => ({ latitude, longitude }));
+
+    AmbulanceSimulationService.setAmbulances([{ id: ambulanceId, route: path }]);
+    AmbulanceSimulationService.start(speed || 1);
+
+    res.json({ message: "Simulation started", routeLength: path.length });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// Stop simulation
+export function stopAmbulanceSimulation(req, res) {
+    AmbulanceSimulationService.stop();
+    res.json({ message: "Simulation stopped" });
 }

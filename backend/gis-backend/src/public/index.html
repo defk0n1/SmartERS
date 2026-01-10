@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <title>SmartERS Ambulance Simulation</title>
+
+    <style>
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            font-family: 'Avenir Next', Arial, sans-serif;
+        }
+
+        arcgis-map {
+            height: 100%;
+            width: 100%;
+        }
+
+        #controls {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            z-index: 99;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        #controls button {
+            display: block;
+            width: 100%;
+            margin: 5px 0;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        #startBtn {
+            background: #0079c1;
+            color: white;
+        }
+
+        #startBtn:hover {
+            background: #005a87;
+        }
+
+        #stopBtn {
+            background: #d83020;
+            color: white;
+        }
+
+        #stopBtn:hover {
+            background: #a82315;
+        }
+
+        #clearBtn {
+            background: #f3f3f3;
+            color: #323232;
+            border: 1px solid #ccc;
+        }
+
+        #clearBtn:hover {
+            background: #e0e0e0;
+        }
+
+        #status {
+            position: absolute;
+            bottom: 15px;
+            left: 15px;
+            z-index: 99;
+            background: white;
+            padding: 12px 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+            font-size: 14px;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .connected {
+            background-color: #00c851;
+        }
+
+        .disconnected {
+            background-color: #ff4444;
+        }
+
+        h3 {
+            margin: 0 0 10px 0;
+            font-size: 16px;
+            color: #323232;
+        }
+    </style>
+
+    <!-- 1️⃣ Load Socket.IO first (UMD global) -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+
+    <!-- 2️⃣ Load ArcGIS Maps SDK base (AMD/Dojo) -->
+    <script src="https://js.arcgis.com/4.34/"></script>
+
+    <!-- 3️⃣ Only load map-components if you actually need them (optional) -->
+    <script type="module" src="https://js.arcgis.com/4.34/map-components/"></script>
+
+    <!-- 4️⃣ Load Calcite components as module -->
+    <script type="module" src="https://js.arcgis.com/calcite-components/3.3.3/calcite.esm.js"></script>
+</head>
+
+<body>
+    <div id="controls">
+        <h3>🚑 SmartERS Control</h3>
+        <button id="startBtn">Start Simulation</button>
+        <button id="stopBtn">Stop Simulation</button>
+        <button id="clearBtn">Clear Map</button>
+    </div>
+
+    <div id="status">
+        <span class="status-indicator disconnected" id="statusDot"></span>
+        <span id="statusText">Connecting to server...</span>
+    </div>
+
+    <arcgis-map basemap="streets-navigation-vector" center="10.16579,36.81897" zoom="13">
+        <arcgis-zoom position="top-left"></arcgis-zoom>
+    </arcgis-map>
+
+    <script>
+        // Initialize Socket.IO
+        console.log("Initializing Socket.IO...");
+        const socket = io();
+
+        socket.on("connect", () => {
+            console.log("✅ Socket.IO connected");
+            updateStatus(true, "Connected to server");
+        });
+
+        socket.on("disconnect", () => {
+            console.log("❌ Socket.IO disconnected");
+            updateStatus(false, "Disconnected from server");
+        });
+
+        socket.on("connect_error", (error) => {
+            console.error("Socket.IO connection error:", error);
+            updateStatus(false, "Server not available");
+        });
+
+        function updateStatus(connected, message) {
+            const statusDot = document.getElementById("statusDot");
+            const statusText = document.getElementById("statusText");
+
+            if (statusDot && statusText) {
+                statusDot.className = "status-indicator " + (connected ? "connected" : "disconnected");
+                statusText.textContent = message;
+            }
+        }
+
+        // Wait for the map component to be ready
+        const mapElement = document.querySelector("arcgis-map");
+
+        mapElement.addEventListener("arcgisViewReadyChange", async (event) => {
+            console.log("🗺️  Map is ready!");
+            const view = mapElement.view;
+
+            const ambulanceGraphics = {};
+            let animationFrames = [];
+
+            // Load required ArcGIS modules
+            const [Graphic, Point, Polyline] = await Promise.all([
+                import("https://js.arcgis.com/4.34/@arcgis/core/Graphic.js"),
+                import("https://js.arcgis.com/4.34/@arcgis/core/geometry/Point.js"),
+                import("https://js.arcgis.com/4.34/@arcgis/core/geometry/Polyline.js")
+            ]).then(modules => modules.map(m => m.default));
+
+            // Socket event for ambulance updates
+            socket.on("ambulanceUpdate", (data) => {
+                const { id, position } = data;
+                if (!position) return;
+
+                if (!ambulanceGraphics[id]) {
+                    ambulanceGraphics[id] = new Graphic({
+                        geometry: new Point({
+                            longitude: position.longitude,
+                            latitude: position.latitude
+                        }),
+                        symbol: {
+                            type: "simple-marker",
+                            color: [255, 50, 50],
+                            size: 14,
+                            outline: {
+                                color: [255, 255, 255],
+                                width: 2
+                            }
+                        }
+                    });
+                    view.graphics.add(ambulanceGraphics[id]);
+                } else {
+                    ambulanceGraphics[id].geometry = new Point({
+                        longitude: position.longitude,
+                        latitude: position.latitude
+                    });
+                }
+            });
+
+            // Clear map function
+            function clearMap() {
+                view.graphics.removeAll();
+                Object.keys(ambulanceGraphics).forEach(key => delete ambulanceGraphics[key]);
+                animationFrames.forEach(id => cancelAnimationFrame(id));
+                animationFrames = [];
+            }
+
+            // Start simulation
+            document.getElementById("startBtn").addEventListener("click", async () => {
+                clearMap();
+                console.log("🚀 Starting simulation...");
+
+                const ambulances = [
+                    {
+                        id: "ambulance1",
+                        start: [10.1658324, 36.81898319],
+                        end: [10.1749917, 36.82097377],
+                        color: [0, 122, 255],
+                        name: "Unit A1"
+                    },
+                    {
+                        id: "ambulance2",
+                        start: [10.1600, 36.8175],
+                        end: [10.1700, 36.8220],
+                        color: [52, 199, 89],
+                        name: "Unit A2"
+                    }
+                ];
+
+                for (const amb of ambulances) {
+                    try {
+                        console.log(`Fetching route for ${amb.name}...`);
+                        const res = await fetch("/api/gis/getRoute", {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json"
+                            },
+                            body: JSON.stringify({
+                                start: { latitude: amb.start[1], longitude: amb.start[0] },
+                                end: { latitude: amb.end[1], longitude: amb.end[0] }
+                            })
+                        });
+
+
+                        if (!res.ok) {
+                            throw new Error(`HTTP error! status: ${res.status}`);
+                        }
+
+                        const data = await res.json();
+                        console.log(`✅ Route received for ${amb.name}`);
+
+                        if (!data.success || !data.route) {
+                            console.error("Failed to get route for", amb.id);
+                            continue;
+                        }
+
+                        const routeCoords = data.route.geometry.paths[0].map(([lon, lat]) => ({
+                            latitude: lat,
+                            longitude: lon
+                        }));
+
+                        // Draw route line
+                        const routeGraphic = new Graphic({
+                            geometry: new Polyline({
+                                paths: [routeCoords.map(p => [p.longitude, p.latitude])]
+                            }),
+                            symbol: {
+                                type: "simple-line",
+                                color: amb.color,
+                                width: 3
+                            }
+                        });
+                        view.graphics.add(routeGraphic);
+
+                        // Add start marker (green)
+                        const startMarker = new Graphic({
+                            geometry: new Point({
+                                longitude: routeCoords[0].longitude,
+                                latitude: routeCoords[0].latitude
+                            }),
+                            symbol: {
+                                type: "simple-marker",
+                                color: [76, 175, 80],
+                                size: 12,
+                                outline: { color: [255, 255, 255], width: 2 }
+                            }
+                        });
+                        view.graphics.add(startMarker);
+
+                        // Add end marker (red)
+                        const endMarker = new Graphic({
+                            geometry: new Point({
+                                longitude: routeCoords[routeCoords.length - 1].longitude,
+                                latitude: routeCoords[routeCoords.length - 1].latitude
+                            }),
+                            symbol: {
+                                type: "simple-marker",
+                                color: [244, 67, 54],
+                                size: 12,
+                                outline: { color: [255, 255, 255], width: 2 }
+                            }
+                        });
+                        view.graphics.add(endMarker);
+
+                        // Create ambulance graphic
+                        ambulanceGraphics[amb.id] = new Graphic({
+                            geometry: new Point({
+                                longitude: routeCoords[0].longitude,
+                                latitude: routeCoords[0].latitude
+                            }),
+                            symbol: {
+                                type: "simple-marker",
+                                color: [255, 50, 50],
+                                size: 16,
+                                outline: { color: [255, 255, 255], width: 2 }
+                            }
+                        });
+                        view.graphics.add(ambulanceGraphics[amb.id]);
+
+                        // Animate ambulance
+                        let currentIndex = 0;
+                        let progress = 0;
+                        const speed = 0.01;
+
+                        function animate() {
+                            if (currentIndex >= routeCoords.length - 1) {
+                                console.log(`✅ ${amb.name} reached destination`);
+                                return;
+                            }
+
+                            const start = routeCoords[currentIndex];
+                            const end = routeCoords[currentIndex + 1];
+
+                            progress += speed;
+
+                            if (progress >= 1) {
+                                progress = 0;
+                                currentIndex++;
+                                if (currentIndex >= routeCoords.length - 1) return;
+                            }
+
+                            const lon = start.longitude + (end.longitude - start.longitude) * progress;
+                            const lat = start.latitude + (end.latitude - start.latitude) * progress;
+
+                            ambulanceGraphics[amb.id].geometry = new Point({
+                                longitude: lon,
+                                latitude: lat
+                            });
+
+                            // Emit to other clients
+                            socket.emit("ambulanceLocationUpdate", {
+                                id: amb.id,
+                                position: { longitude: lon, latitude: lat }
+                            });
+
+                            const frameId = requestAnimationFrame(animate);
+                            animationFrames.push(frameId);
+                        }
+
+                        animate();
+
+                    } catch (error) {
+                        console.error(`❌ Error processing ${amb.name}:`, error);
+                        alert(`Error: Could not fetch route for ${amb.name}. Check console.`);
+                    }
+                }
+            });
+
+            // Stop simulation
+            document.getElementById("stopBtn").addEventListener("click", async () => {
+                console.log("🛑 Stopping simulation...");
+                animationFrames.forEach(id => cancelAnimationFrame(id));
+                animationFrames = [];
+
+                try {
+                    await fetch("/gis/ambulance/stopSimulation");
+                    console.log("Simulation stopped");
+                } catch (error) {
+                    console.error("Error stopping simulation:", error);
+                }
+            });
+
+            // Clear map
+            document.getElementById("clearBtn").addEventListener("click", () => {
+                clearMap();
+                console.log("🧹 Map cleared");
+            });
+        })(); // End of async IIFE
+    </script>
+</body>
+
+</html>
