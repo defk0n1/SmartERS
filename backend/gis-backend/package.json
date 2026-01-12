@@ -14,6 +14,7 @@
   "dependencies": {
     "@esri/arcgis-rest-request": "^4.7.3",
     "@esri/arcgis-rest-routing": "^4.0.3",
+    "@esri/arcgis-rest-geocoding": "^4.0.3",
     "axios": "^1.13.2",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",

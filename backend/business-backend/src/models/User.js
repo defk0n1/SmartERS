@@ -18,10 +18,24 @@ const userSchema = new mongoose.Schema({
     },
     role: {
         type: String,
-        enum: ["operator", "driver"],
+        enum: ["admin", "operator", "driver"],
         default: "operator",
     },
-    refreshToken: { type: String, default: null } // store current refresh token
+    // Driver-specific fields
+    assignedAmbulance: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Ambulance",
+        default: null
+    },
+    isActive: {
+        type: Boolean,
+        default: true
+    },
+    lastLogin: {
+        type: Date,
+        default: null
+    },
+    refreshToken: { type: String, default: null }
 
 }, { timestamps: true });
 
@@ -38,6 +52,21 @@ userSchema.pre("save", async function (next) {
 userSchema.methods.comparePassword = async function (enteredPassword) {
     return await bcrypt.compare(enteredPassword, this.password);
 };
+
+// Virtual to check if user is admin
+userSchema.virtual("isAdmin").get(function() {
+    return this.role === "admin";
+});
+
+// Virtual to check if user is operator
+userSchema.virtual("isOperator").get(function() {
+    return this.role === "operator";
+});
+
+// Virtual to check if user is driver
+userSchema.virtual("isDriver").get(function() {
+    return this.role === "driver";
+});
 
 const User = mongoose.model("User", userSchema);
 export default User;

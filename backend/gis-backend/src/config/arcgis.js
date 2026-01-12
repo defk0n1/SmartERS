@@ -37,7 +37,7 @@ export async function getArcGISToken() {
     cachedToken = response.data.access_token;
     tokenExpiry = now + response.data.expires_in * 1000; // milliseconds
 
-    console.log("ArcGIS Token obtained:", cachedToken.substring(0, 10) + "...");
+    console.log("ArcGIS Token obtained: ", cachedToken);
     return cachedToken;
   } catch (err) {
     console.error("ArcGIS token error:", err.response?.data || err.message);

@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
-    "test": "mocha src/test/**/*.test.js --timeout 10000",
+    "test": "set NODE_ENV=test&& mocha src/test/**/*.test.js --timeout 10000",
     "migrate": "node src/scripts/migrate.js",
     "rollback": "node src/scripts/rollback.js",
     "new:migration": "node src/scripts/new-migration.js",
@@ -26,7 +26,11 @@
     "express-rate-limit": "^8.2.1",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.20.1",
-    "morgan": "^1.10.1"
+    "morgan": "^1.10.1",
+    "socket.io": "^4.8.3",
+    "socket.io-client": "^4.8.3",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1"
   },
   "devDependencies": {
     "@types/chai-http": "^3.0.5",

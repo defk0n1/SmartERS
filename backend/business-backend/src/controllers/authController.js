@@ -101,6 +101,21 @@ export const refreshAccessToken = async (req, res) => {
   }
 };
 
+// Get current user profile
+export const getCurrentUser = async (req, res) => {
+  try {
+    // req.user is set by auth middleware
+    const user = await User.findById(req.user.id).select("-password -refreshToken");
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    res.json(user);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
 // Logout: remove refresh token server-side and clear cookie
 export const logout = async (req, res) => {
   try {

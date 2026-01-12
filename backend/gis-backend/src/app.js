@@ -4,6 +4,7 @@ import incidentsGISRoutes from "./routes/incidentGISRoutes.js";
 import ambulanceGISRoutes from "./routes/ambulanceGISRoutes.js";
 import routingRoutes from "./routes/routingRoutes.js";
 import ambulanceSimulationRoutes from "./routes/ambulanceSimulationRoutes.js";
+import geocodingRoutes from "./routes/geocodingRoutes.js";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -22,6 +23,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use("/incidents", incidentsGISRoutes);
 app.use("/ambulances", ambulanceGISRoutes);
 app.use("/api/gis", routingRoutes);
+app.use("/api/gis", geocodingRoutes);
 app.use("/gis/ambulance", ambulanceSimulationRoutes);
 
 // Health check

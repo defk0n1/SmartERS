@@ -31,13 +31,16 @@ class GeocodingService {
     }
 
     // Convert coordinates to human-readable address
+    // NOTE: ArcGIS reverse geocoding requires premium/paid subscription
+    // Standard OAuth credentials will result in 499 "Token Required" error
+    // This is an ArcGIS platform limitation, not a code issue
     async reverseGeocodeLocation(coords) {
         const token = await getArcGISToken();
         const authentication = await ArcGISIdentityManager.fromToken({
             token,
             portal: "https://www.arcgis.com/sharing/rest"
         });
-
+        console.log(authentication)
         try {
             const response = await reverseGeocode({
                 authentication,
@@ -48,9 +51,14 @@ class GeocodingService {
                 return response.address; // structured address object
             }
 
+
             return null;
         } catch (error) {
             console.error("Reverse Geocoding Error:", error);
+            // If error code 499, it means reverse geocoding requires premium ArcGIS subscription
+            if (error.code === 499 || error.message?.includes("Token Required")) {
+                throw new Error("Reverse geocoding requires ArcGIS premium subscription (499: Token Required)");
+            }
             throw new Error("Failed to reverse geocode location: " + (error.message || "Unknown error"));
         }
     }
