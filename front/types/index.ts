@@ -124,13 +124,12 @@ export interface PaginatedResponse<T> {
 }
 
 export interface GISRoute {
-  geometry: {
-    paths: number[][][]
-  }
-  attributes: any
-  directions?: any[]
-  totalDistance?: number
-  totalTime?: number
+  route?: any[] // Array of route coordinates
+  path?: any[] // Alternative property name
+  geometry?: any[] // Alternative property name
+  distance?: number
+  time?: number
+  [key: string]: any // Allow other properties
 }
 
 export interface DispatchData {

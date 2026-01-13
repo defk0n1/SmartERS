@@ -7,12 +7,14 @@ interface ArcGISMapIframeProps {
   incidents: Incident[]
   ambulances: Ambulance[]
   socket: any
+  simulationRoute?: any[] | null
 }
 
 export default function ArcGISMapIframe({ 
   incidents,
   ambulances,
-  socket
+  socket,
+  simulationRoute
 }: ArcGISMapIframeProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [mapReady, setMapReady] = useState(false)
@@ -21,7 +23,7 @@ export default function ArcGISMapIframe({
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       if (event.data.type === 'MAP_READY') {
-        console.log('✅ Map iframe is ready')
+        console.log('Map is ready')
         setMapReady(true)
       }
     }
@@ -37,28 +39,24 @@ export default function ArcGISMapIframe({
     iframeRef.current.contentWindow.postMessage({
       type: 'UPDATE_DATA',
       incidents,
-      ambulances
+      ambulances,
+      simulationRoute
     }, '*')
-  }, [mapReady, incidents, ambulances])
+  }, [mapReady, incidents, ambulances, simulationRoute])
 
   // Forward socket events to iframe
   useEffect(() => {
     if (!socket || !mapReady || !iframeRef.current?.contentWindow) return
 
-    const handleLocationUpdate = (data: any) => {
+    const handleAmbulanceUpdate = (data: any) => {
       iframeRef.current?.contentWindow?.postMessage({
-        type: 'UPDATE_AMBULANCE_POSITION',
-        ...data
+        type: 'AMBULANCE_UPDATE',
+        data
       }, '*')
     }
 
-    socket.on('ambulance:locationUpdate', handleLocationUpdate)
-    socket.on('ambulanceUpdate', handleLocationUpdate)
-
-    return () => {
-      socket.off('ambulance:locationUpdate', handleLocationUpdate)
-      socket.off('ambulanceUpdate', handleLocationUpdate)
-    }
+    socket.on('ambulanceUpdate', handleAmbulanceUpdate)
+    return () => socket.off('ambulanceUpdate', handleAmbulanceUpdate)
   }, [socket, mapReady])
 
   return (
