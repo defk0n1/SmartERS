@@ -18,6 +18,13 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
+      <head>
+        {/* ArcGIS CDN styles (MUST be here, not in globals.css) */}
+        <link
+          rel="stylesheet"
+          href="https://js.arcgis.com/4.34/esri/themes/light/main.css"
+        />
+      </head>
       <body className={inter.className}>
         <AuthProvider>
           {children}

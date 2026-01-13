@@ -5,7 +5,7 @@ const GIS_API_URL = process.env.NEXT_PUBLIC_GIS_API_URL || 'http://localhost:500
 
 export const gisService = {
   async getRoute(start: { longitude: number; latitude: number }, end: { longitude: number; latitude: number }): Promise<GISRoute> {
-    const { data } = await axios.post(`${GIS_API_URL}/api/gis/route`, { start, end })
+    const { data } = await axios.post(`${GIS_API_URL}/api/gis/getRoute`, { start, end })
     return data
   },
 
