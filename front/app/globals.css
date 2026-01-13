@@ -2,6 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ArcGIS Map Components styles */
+@import "@arcgis/map-components/main.css";
+
 @layer base {
   :root {
     --background: 0 0% 100%;

@@ -137,273 +137,154 @@
         <arcgis-zoom position="top-left"></arcgis-zoom>
     </arcgis-map>
 
-    <script>
-        // Initialize Socket.IO
-        console.log("Initializing Socket.IO...");
-        const socket = io();
+<script>
+  const socket = io();
+  let view, Graphic, Point, Polyline, GraphicsLayer;
+  let ambulanceLayer, routeLayer;
+  let animationHandles = [];
 
-        socket.on("connect", () => {
-            console.log("✅ Socket.IO connected");
-            updateStatus(true, "Connected to server");
-        });
+  socket.on("connect", () => updateStatus(true, "Connected to server"));
+  socket.on("disconnect", () => updateStatus(false, "Disconnected"));
 
-        socket.on("disconnect", () => {
-            console.log("❌ Socket.IO disconnected");
-            updateStatus(false, "Disconnected from server");
-        });
+  function updateStatus(connected, text) {
+    statusDot.className =
+      "status-indicator " + (connected ? "connected" : "disconnected");
+    statusText.textContent = text;
+  }
 
-        socket.on("connect_error", (error) => {
-            console.error("Socket.IO connection error:", error);
-            updateStatus(false, "Server not available");
-        });
+  const mapElement = document.querySelector("arcgis-map");
 
-        function updateStatus(connected, message) {
-            const statusDot = document.getElementById("statusDot");
-            const statusText = document.getElementById("statusText");
+  mapElement.addEventListener("arcgisViewReadyChange", () => {
+    view = mapElement.view;
 
-            if (statusDot && statusText) {
-                statusDot.className = "status-indicator " + (connected ? "connected" : "disconnected");
-                statusText.textContent = message;
-            }
+    require([
+      "esri/Graphic",
+      "esri/geometry/Point",
+      "esri/geometry/Polyline",
+      "esri/layers/GraphicsLayer"
+    ], (G, P, PL, GL) => {
+      Graphic = G;
+      Point = P;
+      Polyline = PL;
+      GraphicsLayer = GL;
+
+      ambulanceLayer = new GraphicsLayer();
+      routeLayer = new GraphicsLayer();
+
+      view.map.addMany([routeLayer, ambulanceLayer]);
+
+      console.log("🗺️ Simulation map ready");
+    });
+  });
+
+  function clearMap() {
+    routeLayer.removeAll();
+    ambulanceLayer.removeAll();
+    animationHandles.forEach(cancelAnimationFrame);
+    animationHandles = [];
+  }
+
+  async function startSimulation() {
+    clearMap();
+
+    const ambulances = [
+      {
+        id: "ambulance1",
+        start: [10.1658324, 36.81898319],
+        end: [10.1749917, 36.82097377],
+        color: [0, 122, 255]
+      },
+      {
+        id: "ambulance2",
+        start: [10.1600, 36.8175],
+        end: [10.1700, 36.8220],
+        color: [52, 199, 89]
+      }
+    ];
+
+    for (const amb of ambulances) {
+      const res = await fetch("/api/gis/getRoute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          start: { longitude: amb.start[0], latitude: amb.start[1] },
+          end: { longitude: amb.end[0], latitude: amb.end[1] }
+        })
+      });
+
+      const data = await res.json();
+      if (!data?.route?.geometry?.paths?.[0]) continue;
+
+      const path = data.route.geometry.paths[0];
+
+      routeLayer.add(new Graphic({
+        geometry: new Polyline({ paths: [path] }),
+        symbol: { type: "simple-line", color: amb.color, width: 3 }
+      }));
+
+      const ambulanceGraphic = new Graphic({
+        geometry: new Point({
+          longitude: path[0][0],
+          latitude: path[0][1]
+        }),
+        symbol: {
+          type: "simple-marker",
+          style: "square",
+          size: 14,
+          color: [255, 50, 50],
+          outline: { color: "white", width: 2 }
         }
+      });
 
-        // Wait for the map component to be ready
-        const mapElement = document.querySelector("arcgis-map");
+      ambulanceLayer.add(ambulanceGraphic);
 
-        mapElement.addEventListener("arcgisViewReadyChange", async (event) => {
-            console.log("🗺️  Map is ready!");
-            const view = mapElement.view;
+      animateAlongPath(amb.id, path, ambulanceGraphic);
+    }
+  }
 
-            const ambulanceGraphics = {};
-            let animationFrames = [];
+  function animateAlongPath(id, path, graphic) {
+    let segment = 0;
+    let t = 0;
 
-            // Load required ArcGIS modules
-            const [Graphic, Point, Polyline] = await Promise.all([
-                import("https://js.arcgis.com/4.34/@arcgis/core/Graphic.js"),
-                import("https://js.arcgis.com/4.34/@arcgis/core/geometry/Point.js"),
-                import("https://js.arcgis.com/4.34/@arcgis/core/geometry/Polyline.js")
-            ]).then(modules => modules.map(m => m.default));
+    function step() {
+      if (segment >= path.length - 1) return;
 
-            // Socket event for ambulance updates
-            socket.on("ambulanceUpdate", (data) => {
-                const { id, position } = data;
-                if (!position) return;
+      const [x1, y1] = path[segment];
+      const [x2, y2] = path[segment + 1];
 
-                if (!ambulanceGraphics[id]) {
-                    ambulanceGraphics[id] = new Graphic({
-                        geometry: new Point({
-                            longitude: position.longitude,
-                            latitude: position.latitude
-                        }),
-                        symbol: {
-                            type: "simple-marker",
-                            color: [255, 50, 50],
-                            size: 14,
-                            outline: {
-                                color: [255, 255, 255],
-                                width: 2
-                            }
-                        }
-                    });
-                    view.graphics.add(ambulanceGraphics[id]);
-                } else {
-                    ambulanceGraphics[id].geometry = new Point({
-                        longitude: position.longitude,
-                        latitude: position.latitude
-                    });
-                }
-            });
+      t += 0.02;
 
-            // Clear map function
-            function clearMap() {
-                view.graphics.removeAll();
-                Object.keys(ambulanceGraphics).forEach(key => delete ambulanceGraphics[key]);
-                animationFrames.forEach(id => cancelAnimationFrame(id));
-                animationFrames = [];
-            }
+      if (t >= 1) {
+        t = 0;
+        segment++;
+      }
 
-            // Start simulation
-            document.getElementById("startBtn").addEventListener("click", async () => {
-                clearMap();
-                console.log("🚀 Starting simulation...");
+      const lon = x1 + (x2 - x1) * t;
+      const lat = y1 + (y2 - y1) * t;
 
-                const ambulances = [
-                    {
-                        id: "ambulance1",
-                        start: [10.1658324, 36.81898319],
-                        end: [10.1749917, 36.82097377],
-                        color: [0, 122, 255],
-                        name: "Unit A1"
-                    },
-                    {
-                        id: "ambulance2",
-                        start: [10.1600, 36.8175],
-                        end: [10.1700, 36.8220],
-                        color: [52, 199, 89],
-                        name: "Unit A2"
-                    }
-                ];
+      graphic.geometry = new Point({ longitude: lon, latitude: lat });
 
-                for (const amb of ambulances) {
-                    try {
-                        console.log(`Fetching route for ${amb.name}...`);
-                        const res = await fetch("/api/gis/getRoute", {
-                            method: "POST",
-                            headers: {
-                                "Content-Type": "application/json"
-                            },
-                            body: JSON.stringify({
-                                start: { latitude: amb.start[1], longitude: amb.start[0] },
-                                end: { latitude: amb.end[1], longitude: amb.end[0] }
-                            })
-                        });
+      // 🔴 Emit GeoJSON-compatible payload
+      socket.emit("ambulanceLocationUpdate", {
+        id,
+        location: {
+          type: "Point",
+          coordinates: [lon, lat]
+        }
+      });
 
+      const handle = requestAnimationFrame(step);
+      animationHandles.push(handle);
+    }
 
-                        if (!res.ok) {
-                            throw new Error(`HTTP error! status: ${res.status}`);
-                        }
+    step();
+  }
 
-                        const data = await res.json();
-                        console.log(`✅ Route received for ${amb.name}`);
+  startBtn.onclick = startSimulation;
+  stopBtn.onclick = clearMap;
+  clearBtn.onclick = clearMap;
+</script>
 
-                        if (!data.success || !data.route) {
-                            console.error("Failed to get route for", amb.id);
-                            continue;
-                        }
-
-                        const routeCoords = data.route.geometry.paths[0].map(([lon, lat]) => ({
-                            latitude: lat,
-                            longitude: lon
-                        }));
-
-                        // Draw route line
-                        const routeGraphic = new Graphic({
-                            geometry: new Polyline({
-                                paths: [routeCoords.map(p => [p.longitude, p.latitude])]
-                            }),
-                            symbol: {
-                                type: "simple-line",
-                                color: amb.color,
-                                width: 3
-                            }
-                        });
-                        view.graphics.add(routeGraphic);
-
-                        // Add start marker (green)
-                        const startMarker = new Graphic({
-                            geometry: new Point({
-                                longitude: routeCoords[0].longitude,
-                                latitude: routeCoords[0].latitude
-                            }),
-                            symbol: {
-                                type: "simple-marker",
-                                color: [76, 175, 80],
-                                size: 12,
-                                outline: { color: [255, 255, 255], width: 2 }
-                            }
-                        });
-                        view.graphics.add(startMarker);
-
-                        // Add end marker (red)
-                        const endMarker = new Graphic({
-                            geometry: new Point({
-                                longitude: routeCoords[routeCoords.length - 1].longitude,
-                                latitude: routeCoords[routeCoords.length - 1].latitude
-                            }),
-                            symbol: {
-                                type: "simple-marker",
-                                color: [244, 67, 54],
-                                size: 12,
-                                outline: { color: [255, 255, 255], width: 2 }
-                            }
-                        });
-                        view.graphics.add(endMarker);
-
-                        // Create ambulance graphic
-                        ambulanceGraphics[amb.id] = new Graphic({
-                            geometry: new Point({
-                                longitude: routeCoords[0].longitude,
-                                latitude: routeCoords[0].latitude
-                            }),
-                            symbol: {
-                                type: "simple-marker",
-                                color: [255, 50, 50],
-                                size: 16,
-                                outline: { color: [255, 255, 255], width: 2 }
-                            }
-                        });
-                        view.graphics.add(ambulanceGraphics[amb.id]);
-
-                        // Animate ambulance
-                        let currentIndex = 0;
-                        let progress = 0;
-                        const speed = 0.01;
-
-                        function animate() {
-                            if (currentIndex >= routeCoords.length - 1) {
-                                console.log(`✅ ${amb.name} reached destination`);
-                                return;
-                            }
-
-                            const start = routeCoords[currentIndex];
-                            const end = routeCoords[currentIndex + 1];
-
-                            progress += speed;
-
-                            if (progress >= 1) {
-                                progress = 0;
-                                currentIndex++;
-                                if (currentIndex >= routeCoords.length - 1) return;
-                            }
-
-                            const lon = start.longitude + (end.longitude - start.longitude) * progress;
-                            const lat = start.latitude + (end.latitude - start.latitude) * progress;
-
-                            ambulanceGraphics[amb.id].geometry = new Point({
-                                longitude: lon,
-                                latitude: lat
-                            });
-
-                            // Emit to other clients
-                            socket.emit("ambulanceLocationUpdate", {
-                                id: amb.id,
-                                position: { longitude: lon, latitude: lat }
-                            });
-
-                            const frameId = requestAnimationFrame(animate);
-                            animationFrames.push(frameId);
-                        }
-
-                        animate();
-
-                    } catch (error) {
-                        console.error(`❌ Error processing ${amb.name}:`, error);
-                        alert(`Error: Could not fetch route for ${amb.name}. Check console.`);
-                    }
-                }
-            });
-
-            // Stop simulation
-            document.getElementById("stopBtn").addEventListener("click", async () => {
-                console.log("🛑 Stopping simulation...");
-                animationFrames.forEach(id => cancelAnimationFrame(id));
-                animationFrames = [];
-
-                try {
-                    await fetch("/gis/ambulance/stopSimulation");
-                    console.log("Simulation stopped");
-                } catch (error) {
-                    console.error("Error stopping simulation:", error);
-                }
-            });
-
-            // Clear map
-            document.getElementById("clearBtn").addEventListener("click", () => {
-                clearMap();
-                console.log("🧹 Map cleared");
-            });
-        })(); // End of async IIFE
-    </script>
 </body>
 
 </html>

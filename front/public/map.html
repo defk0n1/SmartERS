@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>SmartERS Map</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- ArcGIS JS API -->
+  <script src="https://js.arcgis.com/4.34/"></script>
+  <script type="module" src="https://js.arcgis.com/4.34/map-components/"></script>
+
+  <style>
+    html, body, arcgis-map {
+      height: 100%;
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      font-family: 'Avenir Next', Arial, sans-serif;
+    }
+
+    #status {
+      position: absolute;
+      bottom: 15px;
+      left: 15px;
+      z-index: 99;
+      background: white;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.15);
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 6px;
+    }
+
+    .ready { background: #00c851; }
+    .loading { background: #ffbb33; }
+  </style>
+</head>
+
+<body>
+
+<arcgis-map basemap="streets-navigation-vector" center="10.1658,36.8190" zoom="12">
+  <arcgis-zoom position="top-left"></arcgis-zoom>
+</arcgis-map>
+
+<div id="status">
+  <span id="statusDot" class="dot loading"></span>
+  <span id="statusText">Initializing…</span>
+</div>
+
+<script>
+  let view, Graphic, Point, Polyline, GraphicsLayer;
+  let ready = false;
+
+  let incidentLayer, ambulanceLayer, linkLayer;
+
+  const mapEl = document.querySelector("arcgis-map");
+
+  function setStatus(text, ok = false) {
+    statusText.textContent = text;
+    statusDot.className = "dot " + (ok ? "ready" : "loading");
+  }
+
+  /* ============================
+     Coordinate normalization
+  ============================ */
+  function extractLonLat(item) {
+    if (item?.location?.type === "Point") {
+      const [lon, lat] = item.location.coordinates;
+      return { lon, lat };
+    }
+    return {
+      lon: item.longitude ?? item.lon,
+      lat: item.latitude ?? item.lat
+    };
+  }
+
+  function createPoint({ lon, lat }) {
+    if (typeof lon !== "number" || typeof lat !== "number") return null;
+    return new Point({ longitude: lon, latitude: lat });
+  }
+
+  /* ============================
+     Incident rendering
+  ============================ */
+  function renderIncidents(incidents) {
+    incidentLayer.removeAll();
+    linkLayer.removeAll();
+
+    incidents.forEach(inc => {
+      const { lon, lat } = extractLonLat(inc);
+      const point = createPoint({ lon, lat });
+      if (!point) return;
+
+      const isCompleted = inc.status === "completed";
+
+      const graphic = new Graphic({
+        geometry: point,
+        symbol: {
+          type: "simple-marker",
+          style: isCompleted ? "x" : "circle",
+          size: 14,
+          color: isCompleted ? [150,150,150] : [255, 180, 0],
+          outline: { color: "white", width: 1.5 }
+        },
+        attributes: inc,
+        popupTemplate: {
+          title: "Incident",
+          content: `
+            <b>Severity:</b> ${inc.severity}<br>
+            <b>Status:</b> ${inc.status}<br>
+            <b>Description:</b> ${inc.description || "—"}<br>
+            <b>Reported:</b> ${new Date(inc.createdAt).toLocaleString()}
+          `
+        }
+      });
+
+      incidentLayer.add(graphic);
+
+      if (inc.assignedAmbulance?.location) {
+        const amb = inc.assignedAmbulance;
+        const ambCoords = extractLonLat(amb);
+        const ambPoint = createPoint(ambCoords);
+        if (!ambPoint) return;
+
+        linkLayer.add(new Graphic({
+          geometry: new Polyline({
+            paths: [[[ambCoords.lon, ambCoords.lat], [lon, lat]]]
+          }),
+          symbol: {
+            type: "simple-line",
+            color: [0, 120, 255, 0.7],
+            width: 2,
+            style: "dash"
+          }
+        }));
+      }
+    });
+  }
+
+  /* ============================
+     Ambulance rendering (animated)
+  ============================ */
+  const ambulanceGraphics = new Map();
+
+  function renderAmbulances(ambulances) {
+    ambulances.forEach(amb => {
+      const { lon, lat } = extractLonLat(amb);
+      const point = createPoint({ lon, lat });
+      if (!point) return;
+
+      let graphic = ambulanceGraphics.get(amb._id);
+
+      if (!graphic) {
+        graphic = new Graphic({
+          geometry: point,
+          symbol: {
+            type: "simple-marker",
+            style: "square",
+            size: 14,
+            color: amb.status === "available" ? [0,200,0] : [0,120,255],
+            outline: { color: "white", width: 1.5 }
+          },
+          attributes: amb,
+          popupTemplate: {
+            title: `Ambulance ${amb.plateNumber}`,
+            content: `
+              <b>Status:</b> ${amb.status}<br>
+              <b>Driver:</b> ${amb.driver || "—"}
+            `
+          }
+        });
+
+        ambulanceGraphics.set(amb._id, graphic);
+        ambulanceLayer.add(graphic);
+      } else {
+        animateMove(graphic, graphic.geometry, point);
+      }
+    });
+  }
+
+  function animateMove(graphic, from, to) {
+    const steps = 15;
+    let i = 0;
+
+    const dx = (to.longitude - from.longitude) / steps;
+    const dy = (to.latitude - from.latitude) / steps;
+
+    const interval = setInterval(() => {
+      if (++i >= steps) {
+        graphic.geometry = to;
+        clearInterval(interval);
+        return;
+      }
+
+      graphic.geometry = new Point({
+        longitude: from.longitude + dx * i,
+        latitude: from.latitude + dy * i
+      });
+    }, 40);
+  }
+
+  /* ============================
+     Map init
+  ============================ */
+  mapEl.addEventListener("arcgisViewReadyChange", () => {
+    view = mapEl.view;
+
+    require([
+      "esri/Graphic",
+      "esri/geometry/Point",
+      "esri/geometry/Polyline",
+      "esri/layers/GraphicsLayer"
+    ], (G, P, PL, GL) => {
+      Graphic = G;
+      Point = P;
+      Polyline = PL;
+      GraphicsLayer = GL;
+
+      incidentLayer = new GraphicsLayer();
+      ambulanceLayer = new GraphicsLayer();
+      linkLayer = new GraphicsLayer();
+
+      view.map.addMany([linkLayer, incidentLayer, ambulanceLayer]);
+
+      ready = true;
+      setStatus("Map ready", true);
+
+      window.parent?.postMessage({ type: "MAP_READY" }, "*");
+    });
+  });
+
+  /* ============================
+     Message handling
+  ============================ */
+  window.addEventListener("message", (event) => {
+    if (!ready) return;
+
+    const { type, incidents, ambulances } = event.data || {};
+
+    if (type === "UPDATE_DATA") {
+      if (Array.isArray(incidents)) renderIncidents(incidents);
+      if (Array.isArray(ambulances)) renderAmbulances(ambulances);
+    }
+  });
+</script>
+
+</body>
+</html>

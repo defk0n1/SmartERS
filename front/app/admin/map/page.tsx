@@ -2,14 +2,13 @@
 
 import { useEffect, useState } from 'react'
 import DashboardLayout from '@/components/DashboardLayout'
-import ArcGISMap from '@/components/ArcGISMap'
+import ArcGISMapIframe from '@/components/ArcGISMapIframe'
 import { useRequireAuth } from '@/hooks/useRequireAuth'
 import { io, Socket } from 'socket.io-client'
 import { incidentService } from '@/services/incident.service'
 import { ambulanceService } from '@/services/ambulance.service'
 import { Incident, Ambulance } from '@/types'
 import { StatusBadge, SeverityBadge } from '@/components/Badge'
-import Script from 'next/script'
 
 const BUSINESS_API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
 const GIS_API_URL = process.env.NEXT_PUBLIC_GIS_URL || 'http://localhost:5001'
@@ -22,7 +21,6 @@ export default function MapPage() {
   const [gisSocket, setGisSocket] = useState<Socket | null>(null)
   const [connected, setConnected] = useState(false)
   const [gisConnected, setGisConnected] = useState(false)
-  const [arcgisLoaded, setArcgisLoaded] = useState(false)
 
   useEffect(() => {
     if (!authLoading && user) {
@@ -152,16 +150,7 @@ export default function MapPage() {
   }
 
   return (
-    <>
-      {/* Load ArcGIS SDK */}
-      <Script 
-        src="https://js.arcgis.com/4.34/" 
-        strategy="beforeInteractive"
-        onLoad={() => setArcgisLoaded(true)}
-      />
-      <link rel="stylesheet" href="https://js.arcgis.com/4.34/esri/themes/light/main.css" />
-
-      <DashboardLayout>
+    <DashboardLayout>
         <div className="mb-6">
           <div className="flex justify-between items-center">
             <div>
@@ -193,20 +182,11 @@ export default function MapPage() {
           {/* Map Area */}
           <div className="lg:col-span-2">
             <div className="card h-[600px] p-0 overflow-hidden">
-              {arcgisLoaded ? (
-                <ArcGISMap 
-                  incidents={incidents}
-                  ambulances={ambulances.filter(a => a.status !== 'offline')}
-                  socket={gisSocket}
-                />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center bg-gray-100">
-                  <div className="text-center">
-                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
-                    <p className="text-gray-600">Loading ArcGIS SDK...</p>
-                  </div>
-                </div>
-              )}
+              <ArcGISMapIframe
+                incidents={incidents}
+                ambulances={ambulances.filter(a => a.status !== 'offline')}
+                socket={gisSocket}
+              />
             </div>
           </div>
 
@@ -258,6 +238,5 @@ export default function MapPage() {
         </div>
       </div>
       </DashboardLayout>
-    </>
   )
 }
