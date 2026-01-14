@@ -6,6 +6,9 @@ import { useRequireAuth } from '@/hooks/useRequireAuth'
 import { incidentService } from '@/services/incident.service'
 import { ambulanceService } from '@/services/ambulance.service'
 import { Incident, Ambulance } from '@/types'
+import { gisService } from '@/services/gis.service'
+import ArcGISMapIframe from '@/components/ArcGISMapIframe'
+import { io, Socket } from 'socket.io-client'
 import { StatusBadge, SeverityBadge } from '@/components/Badge'
 import Modal from '@/components/Modal'
 import toast from 'react-hot-toast'
@@ -28,11 +31,18 @@ export default function OperatorIncidentsPage() {
     longitude: '',
     address: '',
   })
+  const [nearest, setNearest] = useState<any[]>([])
+  const [socket, setSocket] = useState<Socket | null>(null)
+  const BUSINESS_API_URL = process.env.NEXT_PUBLIC_BUSINESS_API_URL || 'http://localhost:5000'
 
   useEffect(() => {
     if (!authLoading) {
       fetchIncidents()
       fetchAmbulances()
+      const s = io(BUSINESS_API_URL, { transports: ['websocket', 'polling'] })
+      s.on('connect', () => setSocket(s))
+      s.on('disconnect', () => setSocket(null))
+      return () => { s.disconnect() }
     }
   }, [authLoading])
 
@@ -102,10 +112,7 @@ export default function OperatorIncidentsPage() {
     if (!selectedIncident) return
 
     try {
-      await incidentService.dispatch({
-        incidentId: selectedIncident._id,
-        ambulanceId,
-      })
+      await incidentService.dispatch({ incidentId: selectedIncident._id, ambulanceId })
       toast.success('Ambulance dispatched successfully')
       setIsDispatchModalOpen(false)
       setSelectedIncident(null)
@@ -113,6 +120,41 @@ export default function OperatorIncidentsPage() {
       fetchAmbulances()
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Failed to dispatch ambulance')
+    }
+  }
+
+  const handleAutoDispatch = async () => {
+    if (!selectedIncident) return
+    try {
+      await incidentService.dispatch({ incidentId: selectedIncident._id, autoSelect: true })
+      toast.success('Ambulance auto-selected and dispatched')
+      setIsDispatchModalOpen(false)
+      setSelectedIncident(null)
+      fetchIncidents()
+      fetchAmbulances()
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to auto-dispatch ambulance')
+    }
+  }
+
+  const recommendClosest = async () => {
+    if (!selectedIncident) return
+    try {
+      const lat = selectedIncident.location.coordinates[1]
+      const lon = selectedIncident.location.coordinates[0]
+      const res = await gisService.findNearestAmbulances(lat, lon, 5, 'available', true)
+      const list = res.data || res
+      const enriched = (list || []).map((item: any) => {
+        const plate = item?.attributes?.plateNumber || item?.plateNumber
+        const businessMatch = ambulances.find(a => a.plateNumber === plate)
+        const businessAmbulanceId = item?.attributes?.businessId || businessMatch?._id
+        return { ...item, businessAmbulanceId }
+      })
+      setNearest(enriched)
+      toast.success('Nearest ambulances loaded')
+    } catch (error) {
+      console.error('Nearest ambulances error', error)
+      toast.error('Failed to load nearest ambulances')
     }
   }
 
@@ -163,6 +205,16 @@ export default function OperatorIncidentsPage() {
 
       {/* Incidents Table */}
       <div className="card overflow-hidden">
+        {socket && (
+          <div className="mb-4" style={{ height: 320 }}>
+            <ArcGISMapIframe
+              incidents={incidents}
+              ambulances={ambulances}
+              socket={socket}
+              simulationRoute={null}
+            />
+          </div>
+        )}
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
@@ -233,6 +285,17 @@ export default function OperatorIncidentsPage() {
                           className="text-primary-600 hover:text-primary-900"
                         >
                           Dispatch
+                        </button>
+                      )}
+                      {incident.status === 'pending' && (
+                        <button
+                          onClick={() => {
+                            setSelectedIncident(incident)
+                            recommendClosest()
+                          }}
+                          className="text-green-600 hover:text-green-800 ml-2"
+                        >
+                          Recommend Closest
                         </button>
                       )}
                       <button
@@ -439,6 +502,36 @@ export default function OperatorIncidentsPage() {
               </div>
             )}
           </div>
+
+          {nearest.length > 0 && (
+            <div>
+              <h4 className="text-sm font-medium text-gray-900 mb-3">Recommended Closest Ambulances</h4>
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {nearest.map((item, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => {
+                      const id = (item as any).businessAmbulanceId
+                      if (id) {
+                        handleDispatch(id)
+                      } else {
+                        handleAutoDispatch()
+                      }
+                    }}
+                    className="w-full text-left p-3 border border-green-200 rounded-lg hover:bg-green-50 transition-colors"
+                  >
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <p className="font-medium text-gray-900">{item.attributes?.plateNumber || item.plateNumber || 'Ambulance'}</p>
+                        <p className="text-sm text-gray-500">Estimated time: {Math.round(item.estimatedTimeMinutes || item.actualTimeMinutes || 0)} min</p>
+                      </div>
+                      <span className="text-sm text-gray-600">{(item.distance || item.actualDistanceMiles || 0).toFixed ? (item.distance || item.actualDistanceMiles).toFixed(2) : item.distance} km</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="flex justify-end pt-4">
             <button

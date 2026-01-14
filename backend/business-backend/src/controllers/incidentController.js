@@ -177,9 +177,12 @@ const getDriverIncidents = async (req, res) => {
             return res.status(200).json({ incidents: [] });
         }
 
+        const includeCompleted = req.query.includeCompleted === 'true';
+        const statusFilter = includeCompleted ? {} : { status: { $ne: "completed" } };
+
         const incidents = await Incident.find({ 
             assignedAmbulance: ambulance._id,
-            status: { $ne: "completed" }
+            ...statusFilter
         })
         .populate("reportedBy", "name email")
         .sort({ severity: -1, createdAt: -1 }); // Critical first
@@ -339,9 +342,9 @@ const dispatchAmbulance = async (req, res) => {
 
         // Auto-select nearest ambulance if requested (GIS placeholder)
         if (autoSelect) {
-            const nearestAmbulance = await findNearestAmbulance(incident.location);
-            if (nearestAmbulance) {
-                selectedAmbulanceId = nearestAmbulance._id;
+            const nearestAmb = await findNearestAmbulance(incident.location);
+            if (nearestAmb && nearestAmb.ambulance?._id) {
+                selectedAmbulanceId = nearestAmb.ambulance._id;
             } else {
                 // Fallback: find any available ambulance
                 const availableAmbulance = await Ambulance.findOne({ status: "available" });

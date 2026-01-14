@@ -14,16 +14,24 @@ import {
   CheckCircleIcon 
 } from '@heroicons/react/24/outline'
 import { format } from 'date-fns'
+import ArcGISMapIframe from '@/components/ArcGISMapIframe'
+import { io, Socket } from 'socket.io-client'
 
 export default function OperatorDashboard() {
   const { loading: authLoading } = useRequireAuth(['operator'])
   const [incidents, setIncidents] = useState<Incident[]>([])
   const [ambulances, setAmbulances] = useState<Ambulance[]>([])
   const [loading, setLoading] = useState(true)
+  const [socket, setSocket] = useState<Socket | null>(null)
+  const BUSINESS_API_URL = process.env.NEXT_PUBLIC_BUSINESS_API_URL || 'http://localhost:5000'
 
   useEffect(() => {
     if (!authLoading) {
       fetchData()
+      const s = io(BUSINESS_API_URL, { transports: ['websocket', 'polling'] })
+      s.on('connect', () => setSocket(s))
+      s.on('disconnect', () => setSocket(null))
+      return () => { s.disconnect() }
     }
   }, [authLoading])
 
@@ -86,6 +94,18 @@ export default function OperatorDashboard() {
           color="green"
         />
       </div>
+
+      {/* Live Map */}
+      {socket && (
+        <div className="card mb-6" style={{ height: 360 }}>
+          <ArcGISMapIframe
+            incidents={incidents}
+            ambulances={ambulances}
+            socket={socket}
+            simulationRoute={null}
+          />
+        </div>
+      )}
 
       {/* Recent Incidents */}
       <div className="card mb-6">

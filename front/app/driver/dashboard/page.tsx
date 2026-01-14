@@ -7,22 +7,54 @@ import { incidentService } from '@/services/incident.service'
 import { Incident } from '@/types'
 import { SeverityBadge, StatusBadge } from '@/components/Badge'
 import { format } from 'date-fns'
+import { io, Socket } from 'socket.io-client'
+import toast from 'react-hot-toast'
+import { ambulanceService } from '@/services/ambulance.service'
 import { MapPinIcon, ClockIcon } from '@heroicons/react/24/outline'
 
 export default function DriverDashboard() {
-  const { loading: authLoading } = useRequireAuth(['driver'])
+  const { user, loading: authLoading } = useRequireAuth(['driver'])
   const [incidents, setIncidents] = useState<Incident[]>([])
   const [loading, setLoading] = useState(true)
+  const [socket, setSocket] = useState<Socket | null>(null)
+  const [includeCompleted, setIncludeCompleted] = useState(false)
+  const BUSINESS_API_URL = process.env.NEXT_PUBLIC_BUSINESS_API_URL || 'http://localhost:5000'
 
   useEffect(() => {
     if (!authLoading) {
       fetchAssignedIncidents()
+      const s = io(BUSINESS_API_URL, { transports: ['websocket', 'polling'] })
+      s.on('connect', async () => {
+        setSocket(s)
+        try {
+          const all = await ambulanceService.getAll()
+          const myAmb = (all.ambulances || []).find(a => (typeof a.driver === 'string' ? a.driver : a.driver?._id) === user?._id)
+          if (myAmb?._id) s.emit('join:ambulance', myAmb._id)
+        } catch {}
+      })
+      s.on('disconnect', () => setSocket(null))
+      s.on('dispatch:new', (payload) => {
+        toast.success(`New dispatch: ${payload.incidentDescription}`)
+        fetchAssignedIncidents()
+      })
+      s.on('incident:assigned', () => {
+        fetchAssignedIncidents()
+      })
+      return () => { s.disconnect() }
     }
   }, [authLoading])
 
+  useEffect(() => {
+    // Refetch when includeCompleted changes
+    if (!authLoading) {
+      fetchAssignedIncidents()
+    }
+  }, [includeCompleted, authLoading])
+
   const fetchAssignedIncidents = async () => {
     try {
-      const data = await incidentService.getDriverAssigned()
+      setLoading(true)
+      const data = await incidentService.getDriverAssigned({ includeCompleted })
       setIncidents(Array.isArray(data) ? data : [])
     } catch (error) {
       console.error('Failed to fetch assigned incidents:', error)
@@ -46,7 +78,18 @@ export default function DriverDashboard() {
     <DashboardLayout>
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-gray-900">Driver Dashboard</h1>
-        <p className="text-gray-600 mt-1">Your assigned incidents</p>
+        <div className="mt-2 flex items-center justify-between">
+          <p className="text-gray-600">Your assigned incidents</p>
+          <label className="inline-flex items-center space-x-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              className="form-checkbox h-4 w-4 text-primary-600"
+              checked={includeCompleted}
+              onChange={(e) => setIncludeCompleted(e.target.checked)}
+            />
+            <span>Include completed</span>
+          </label>
+        </div>
       </div>
 
       {/* Active Assignment */}
@@ -64,6 +107,7 @@ export default function DriverDashboard() {
                       <h3 className="text-lg font-medium text-gray-900 mt-2">
                         {incident.description}
                       </h3>
+                      <p className="text-xs text-gray-500 mt-1">ID: {incident._id}</p>
                     </div>
                     <StatusBadge status={incident.status} />
                   </div>
@@ -116,6 +160,7 @@ export default function DriverDashboard() {
                     <div>
                       <SeverityBadge severity={incident.severity} />
                       <p className="text-sm text-gray-900 mt-2">{incident.description}</p>
+                      <p className="text-xs text-gray-500 mt-1">ID: {incident._id}</p>
                     </div>
                     <StatusBadge status={incident.status} />
                   </div>

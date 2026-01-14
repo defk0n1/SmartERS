@@ -10,9 +10,12 @@ class AmbulanceSimulationService {
         this.ambulances = ambulances.map(a => ({ ...a, currentIndex: 0 }));
     }
 
-    start(speed = 1) {
+    start(speed = 1, tickMs) {
         const io = getIO();
         if (this.interval) clearInterval(this.interval);
+        const intervalMs = Number.isFinite(parseInt(process.env.SIM_TICK_MS || '', 10))
+            ? parseInt(process.env.SIM_TICK_MS, 10)
+            : (typeof tickMs === 'number' && tickMs > 0 ? tickMs : 2000);
 
         this.interval = setInterval(() => {
             this.ambulances.forEach(amb => {
@@ -26,7 +29,7 @@ class AmbulanceSimulationService {
                 // Emit real-time update
                 io.emit("ambulanceUpdate", { id: amb.id, position: pos });
             });
-        }, 1000); // tick every second
+        }, intervalMs); // default tick slower for recording
     }
 
     stop() {

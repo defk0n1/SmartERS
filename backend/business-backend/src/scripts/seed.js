@@ -293,6 +293,65 @@ async function seed() {
     }
     console.log(`✅ Created ${createdIncidents.length} incidents.\n`);
 
+    // Ensure specific driver has both assigned and completed incidents
+    try {
+        const primaryDriver = createdUsers.find(u => u.email === "david.driver@smarters.com") || drivers[0];
+        const primaryAmbulance = createdAmbulances.find(a => a.driver?.toString() === primaryDriver?._id?.toString());
+        const reporter = operators[0];
+
+        if (primaryDriver && primaryAmbulance) {
+            console.log("🧩 Adding driver-focused demo incidents for:", primaryDriver.name, "->", primaryAmbulance.plateNumber);
+
+            const pick = (idx) => nycLocations[idx % nycLocations.length];
+
+            // Two assigned incidents for this driver's ambulance
+            for (let i = 0; i < 2; i++) {
+                const loc = pick(i + 1);
+                const incident = await Incident.create({
+                    description: `Driver demo assigned incident #${i + 1} for ${primaryDriver.name}`,
+                    severity: "high",
+                    status: "assigned",
+                    location: {
+                        type: "Point",
+                        coordinates: [
+                            loc.coordinates[0] + (Math.random() - 0.5) * 0.01,
+                            loc.coordinates[1] + (Math.random() - 0.5) * 0.01
+                        ]
+                    },
+                    assignedAmbulance: primaryAmbulance._id,
+                    reportedBy: reporter?._id
+                });
+                createdIncidents.push(incident);
+            }
+
+            // Two completed incidents for this driver's ambulance
+            for (let i = 0; i < 2; i++) {
+                const loc = pick(i + 4);
+                const incident = await Incident.create({
+                    description: `Driver demo completed incident #${i + 1} for ${primaryDriver.name}`,
+                    severity: "medium",
+                    status: "completed",
+                    location: {
+                        type: "Point",
+                        coordinates: [
+                            loc.coordinates[0] + (Math.random() - 0.5) * 0.01,
+                            loc.coordinates[1] + (Math.random() - 0.5) * 0.01
+                        ]
+                    },
+                    assignedAmbulance: primaryAmbulance._id,
+                    reportedBy: reporter?._id
+                });
+                createdIncidents.push(incident);
+            }
+
+            console.log("✅ Added driver-specific assigned and completed incidents.");
+        } else {
+            console.log("⚠️ Could not locate primary driver/ambulance for driver-focused incidents.");
+        }
+    } catch (e) {
+        console.warn("⚠️ Failed to add driver-focused demo incidents:", e.message);
+    }
+
     // Summary
     console.log("=".repeat(60));
     console.log("📊 SEEDING SUMMARY");
@@ -311,6 +370,8 @@ async function seed() {
     console.log(`   - Pending: ${createdIncidents.filter(i => i.status === "pending").length}`);
     console.log(`   - Assigned: ${createdIncidents.filter(i => i.status === "assigned").length}`);
     console.log(`   - Completed: ${createdIncidents.filter(i => i.status === "completed").length}`);
+    const driverDemoCount = createdIncidents.filter(i => i.assignedAmbulance && createdAmbulances.find(a => a._id.toString() === i.assignedAmbulance.toString() && a.driver)).length;
+    console.log(`   - Linked to driver ambulances: ${driverDemoCount}`);
 
     console.log("\n=".repeat(60));
     console.log("🔐 TEST CREDENTIALS");

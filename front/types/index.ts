@@ -134,5 +134,6 @@ export interface GISRoute {
 
 export interface DispatchData {
   incidentId: string
-  ambulanceId: string
+  ambulanceId?: string
+  autoSelect?: boolean
 }

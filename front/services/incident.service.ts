@@ -38,8 +38,8 @@ export const incidentService = {
     return data
   },
 
-  async getDriverAssigned(): Promise<Incident[]> {
-    const { data } = await api.get('/api/incidents/my-assignments')
+  async getDriverAssigned(params?: { includeCompleted?: boolean }): Promise<Incident[]> {
+    const { data } = await api.get('/api/incidents/my-assignments', { params })
     return data
   },
 }

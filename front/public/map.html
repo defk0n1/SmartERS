@@ -1,24 +1,20 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
   <meta charset="utf-8" />
   <title>SmartERS Map</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- ArcGIS JS API -->
   <script src="https://js.arcgis.com/4.34/"></script>
   <script type="module" src="https://js.arcgis.com/4.34/map-components/"></script>
 
   <style>
-    html,
-    body,
-    arcgis-map {
+    html, body, arcgis-map {
       height: 100%;
       width: 100%;
       margin: 0;
       padding: 0;
-      font-family: 'Avenir Next', Arial, sans-serif;
+      font-family: Arial, sans-serif;
     }
 
     #status {
@@ -30,7 +26,7 @@
       padding: 10px 14px;
       border-radius: 8px;
       font-size: 13px;
-      box-shadow: 0 2px 10px rgba(0, 0, 0, .15);
+      box-shadow: 0 2px 10px rgba(0,0,0,0.15);
     }
 
     .dot {
@@ -41,12 +37,32 @@
       margin-right: 6px;
     }
 
-    .ready {
-      background: #00c851;
+    .ready { background: #00c851; }
+    .loading { background: #ffbb33; }
+
+    .esri-popup__main-container {
+      background: #ffffff !important;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+      border-radius: 10px;
     }
 
-    .loading {
-      background: #ffbb33;
+    #routeSwitcher {
+      position: absolute;
+      top: 15px;
+      right: 15px;
+      z-index: 99;
+      background: white;
+      padding: 8px 10px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+      font-size: 13px;
+      min-width: 220px;
+    }
+    #routeSwitcher select {
+      width: 100%;
+      padding: 6px;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
     }
   </style>
 </head>
@@ -57,140 +73,189 @@
     <arcgis-zoom position="top-left"></arcgis-zoom>
   </arcgis-map>
 
+  <div id="routeSwitcher" style="display:none;">
+    <div style="margin-bottom:6px; font-weight:600;">Active Ambulance Routes</div>
+    <select id="routeSelect"></select>
+  </div>
+
   <div id="status">
     <span id="statusDot" class="dot loading"></span>
     <span id="statusText">Initializing…</span>
   </div>
 
   <script>
-    let view, Graphic, Point, Polyline, GraphicsLayer;
+    let view, Graphic, Point, Polyline, GraphicsLayer, HeatmapRenderer, Extent;
     let ready = false;
 
-    let incidentLayer, ambulanceLayer, linkLayer, routeLayer;
+    let incidentLayer, ambulanceLayer, routeLayer, heatmapLayer, trailsLayer;
+    const routeLayers = new Map(); // map of ambulanceId -> GraphicsLayer
+    const ambulanceGraphics = new Map();
+    const ambulanceTrails = new Map(); // map of ambulanceId -> Graphic (polyline)
+
+    let didInitialCenter = false;
+    let lastState = { incidents: [], ambulances: [], simulationPlans: [] };
+    let followAmbulanceId = null;
 
     const mapEl = document.querySelector("arcgis-map");
 
-    function setStatus(text, ok = false) {
-      statusText.textContent = text;
-      statusDot.className = "dot " + (ok ? "ready" : "loading");
+    function setStatus(text, ok) {
+      document.getElementById("statusText").textContent = text;
+      document.getElementById("statusDot").className = "dot " + (ok ? "ready" : "loading");
     }
 
-    /* ============================
-       Coordinate normalization
-    ============================ */
     function extractLonLat(item) {
-      if (item?.location?.type === "Point") {
-        const [lon, lat] = item.location.coordinates;
-        return { lon, lat };
+      if (item && item.location && item.location.type === "Point") {
+        const coords = item.location.coordinates;
+        return { lon: coords[0], lat: coords[1] };
       }
-      return {
-        lon: item.longitude ?? item.lon,
-        lat: item.latitude ?? item.lat
-      };
+      return { lon: item.longitude || item.lon, lat: item.latitude || item.lat };
     }
 
-    function createPoint({ lon, lat }) {
-      if (typeof lon !== "number" || typeof lat !== "number") return null;
-      return new Point({ longitude: lon, latitude: lat });
+    function createPoint(pos) {
+      if (!pos || typeof pos.lon !== "number" || typeof pos.lat !== "number") return null;
+      return new Point({ longitude: pos.lon, latitude: pos.lat });
     }
 
-    /* ============================
-       Simulation route rendering
-    ============================ */
-    function renderSimulationRoute(route) {
+    function focusOnRoute(route) {
+      if (!route || route.length === 0) return;
+      const polyline = new Polyline({ paths: [route] });
+      view.goTo({ target: polyline, padding: { top: 80, bottom: 80, left: 80, right: 80 } }, { duration: 1200 });
+    }
+
+    function autoCenter(incidents, ambulances) {
+      const points = [];
+      (incidents || []).forEach(inc => {
+        const p = createPoint(extractLonLat(inc));
+        if (p) points.push(p);
+      });
+      (ambulances || []).forEach(amb => {
+        const p = createPoint(extractLonLat(amb));
+        if (p) points.push(p);
+      });
+      if (points.length === 0) return;
+
+      // Compute bounding box
+      let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
+      points.forEach(p => {
+        minLon = Math.min(minLon, p.longitude);
+        minLat = Math.min(minLat, p.latitude);
+        maxLon = Math.max(maxLon, p.longitude);
+        maxLat = Math.max(maxLat, p.latitude);
+      });
+
+      const extent = new Extent({ xmin: minLon, ymin: minLat, xmax: maxLon, ymax: maxLat, spatialReference: { wkid: 4326 } });
+      view.goTo(extent.expand(1.2), { duration: 800 }).catch(() => {});
+    }
+
+    function renderHeatmap(incidents) {
+      heatmapLayer.removeAll();
+
+      incidents.forEach(function (inc) {
+        const point = createPoint(extractLonLat(inc));
+        if (!point) return;
+
+        heatmapLayer.add(new Graphic({ geometry: point }));
+      });
+    }
+
+    function renderSimulationRoute(route, stats) {
       routeLayer.removeAll();
-      
-      if (!route || route.length === 0) {
+      if (!route || route.length === 0) return;
+      const polyline = new Polyline({ paths: [route] });
+      routeLayer.add(new Graphic({
+        geometry: polyline,
+        symbol: { type: "simple-line", color: [255, 0, 0, 0.85], width: 3 },
+        popupTemplate: stats ? {
+          title: "Simulation Data",
+          content:
+            "<b>Distance:</b> " + stats.distance + " km<br>" +
+            "<b>ETA:</b> " + stats.eta + " min<br>" +
+            "<b>Avg Speed:</b> " + stats.speed + " km/h"
+        } : null
+      }));
+      focusOnRoute(route);
+    }
+
+    function renderSimulationPlans(plans, ambulances) {
+      // Clear previous layers
+      routeLayers.forEach(layer => { layer.removeAll(); view.map.remove(layer); });
+      routeLayers.clear();
+
+      if (!Array.isArray(plans) || plans.length === 0) {
+        document.getElementById("routeSwitcher").style.display = "none";
         return;
       }
 
-      const polyline = new Polyline({
-        paths: [route]
+      const select = document.getElementById("routeSelect");
+      select.innerHTML = "";
+
+      plans.forEach(plan => {
+        const layer = new GraphicsLayer();
+        const polyline = new Polyline({ paths: [plan.route] });
+        const popupStats = plan.stats ? {
+          title: "Route Stats",
+          content:
+            "<b>Distance:</b> " + plan.stats.distance + " km<br>" +
+            "<b>ETA:</b> " + plan.stats.eta + " min<br>" +
+            "<b>Avg Speed:</b> " + plan.stats.speed + " km/h"
+        } : null;
+
+        layer.add(new Graphic({ geometry: polyline, symbol: { type: "simple-line", color: [0, 122, 255, 0.9], width: 3 }, popupTemplate: popupStats }));
+        view.map.add(layer);
+        routeLayers.set(plan.id, layer);
+
+        const amb = (ambulances || []).find(a => a._id === plan.id);
+        const label = amb ? (amb.plateNumber || amb._id) : plan.id;
+        const opt = document.createElement("option");
+        opt.value = plan.id;
+        opt.textContent = label;
+        select.appendChild(opt);
       });
 
-      const graphic = new Graphic({
-        geometry: polyline,
-        symbol: {
-          type: "simple-line",
-          color: [255, 0, 0, 0.8],
-          width: 3
-        }
-      });
+      document.getElementById("routeSwitcher").style.display = "block";
 
-      routeLayer.add(graphic);
+      // Focus first route by default
+      const first = plans[0];
+      if (first && first.route) focusOnRoute(first.route);
     }
 
-    /* ============================
-       Incident rendering
-    ============================ */
     function renderIncidents(incidents) {
       incidentLayer.removeAll();
-      linkLayer.removeAll();
 
-      incidents.forEach(inc => {
-        const { lon, lat } = extractLonLat(inc);
-        const point = createPoint({ lon, lat });
-        if (!point) {
-          console.warn("Skipping incident with invalid coordinates:", inc);
-          return;
-        }
+      incidents.forEach(function (inc) {
+        const point = createPoint(extractLonLat(inc));
+        if (!point) return;
 
-        const isCompleted = inc.status === "completed";
-
-        const graphic = new Graphic({
+        incidentLayer.add(new Graphic({
           geometry: point,
           symbol: {
             type: "simple-marker",
-            style: isCompleted ? "x" : "circle",
             size: 14,
-            color: isCompleted ? [150, 150, 150] : [255, 180, 0],
+            color: [255, 180, 0],
             outline: { color: "white", width: 1.5 }
           },
-          attributes: inc,
           popupTemplate: {
             title: "Incident",
-            content: `
-            <b>Severity:</b> ${inc.severity}<br>
-            <b>Status:</b> ${inc.status}<br>
-            <b>Description:</b> ${inc.description || "—"}<br>
-            <b>Reported:</b> ${new Date(inc.createdAt).toLocaleString()}
-          `
+            content:
+              "<b>Severity:</b> " + inc.severity + "<br>" +
+              "<b>Status:</b> " + inc.status + "<br>" +
+              "<b>Description:</b> " + (inc.description || "—") + "<br>" +
+              "<b>Ambulance:</b> " + (inc.assignedAmbulance?.plateNumber || "None")
           }
-        });
-
-        incidentLayer.add(graphic);
-
-        if (inc.assignedAmbulance?.location) {
-          const amb = inc.assignedAmbulance;
-          const ambCoords = extractLonLat(amb);
-          const ambPoint = createPoint(ambCoords);
-          if (!ambPoint) return;
-
-          linkLayer.add(new Graphic({
-            geometry: new Polyline({
-              paths: [[[ambCoords.lon, ambCoords.lat], [lon, lat]]]
-            }),
-            symbol: {
-              type: "simple-line",
-              color: [0, 120, 255, 0.7],
-              width: 2,
-              style: "dash"
-            }
-          }));
-        }
+        }));
       });
     }
 
-    /* ============================
-       Ambulance rendering (animated)
-    ============================ */
-    const ambulanceGraphics = new Map();
-
     function renderAmbulances(ambulances) {
-      ambulances.forEach(amb => {
-        const { lon, lat } = extractLonLat(amb);
-        const point = createPoint({ lon, lat });
+      ambulances.forEach(function (amb) {
+        const point = createPoint(extractLonLat(amb));
         if (!point) return;
+
+        const popupHTML =
+          "<b>Status:</b> " + amb.status + "<br>" +
+          "<b>Driver:</b> " + (amb.driver?.name || "—") + "<br>" +
+          "<b>Email:</b> " + (amb.driver?.email || "—") + "<br>" +
+          "<b>Plate:</b> " + amb.plateNumber;
 
         let graphic = ambulanceGraphics.get(amb._id);
 
@@ -198,28 +263,49 @@
           graphic = new Graphic({
             geometry: point,
             symbol: {
-              type: "simple-marker",
-              style: "square",
-              size: 14,
-              color: amb.status === "available" ? [0, 200, 0] : [0, 120, 255],
-              outline: { color: "white", width: 1.5 }
+              type: "picture-marker",
+              url: "/ambulance.svg",
+              width: "26px",
+              height: "26px"
             },
-            attributes: amb,
             popupTemplate: {
-              title: `Ambulance ${amb.plateNumber}`,
-              content: `
-              <b>Status:</b> ${amb.status}<br>
-              <b>Driver:</b> ${amb.driver || "—"}
-            `
+              title: "Ambulance " + amb.plateNumber,
+              content: popupHTML
             }
           });
 
           ambulanceGraphics.set(amb._id, graphic);
           ambulanceLayer.add(graphic);
+          updateTrailForAmbulance(amb._id, point);
         } else {
           animateMove(graphic, graphic.geometry, point);
+          updateTrailForAmbulance(amb._id, point);
+          if (followAmbulanceId && amb._id === followAmbulanceId) {
+            view.goTo(point, { duration: 250 }).catch(() => {});
+          }
         }
       });
+    }
+
+    function updateTrailForAmbulance(id, point) {
+      try {
+        let trailGraphic = ambulanceTrails.get(id);
+        if (!trailGraphic) {
+          const polyline = new Polyline({ paths: [[point.longitude, point.latitude]] });
+          trailGraphic = new Graphic({
+            geometry: polyline,
+            symbol: { type: "simple-line", color: [0, 200, 0, 0.7], width: 2, style: "short-dot" }
+          });
+          ambulanceTrails.set(id, trailGraphic);
+          trailsLayer.add(trailGraphic);
+        } else {
+          const paths = trailGraphic.geometry.paths && trailGraphic.geometry.paths[0] ? trailGraphic.geometry.paths[0].slice() : [];
+          paths.push([point.longitude, point.latitude]);
+          trailGraphic.geometry = new Polyline({ paths: [paths] });
+        }
+      } catch (e) {
+        console.warn('Failed to update trail for ambulance', id, e);
+      }
     }
 
     function animateMove(graphic, from, to) {
@@ -229,8 +315,10 @@
       const dx = (to.longitude - from.longitude) / steps;
       const dy = (to.latitude - from.latitude) / steps;
 
-      const interval = setInterval(() => {
-        if (++i >= steps) {
+      const interval = setInterval(function () {
+        i++;
+
+        if (i >= steps) {
           graphic.geometry = to;
           clearInterval(interval);
           return;
@@ -243,53 +331,132 @@
       }, 40);
     }
 
-    /* ============================
-       Map init
-    ============================ */
-    mapEl.addEventListener("arcgisViewReadyChange", () => {
+    mapEl.addEventListener("arcgisViewReadyChange", function () {
       view = mapEl.view;
 
       require([
         "esri/Graphic",
         "esri/geometry/Point",
         "esri/geometry/Polyline",
-        "esri/layers/GraphicsLayer"
-      ], (G, P, PL, GL) => {
+        "esri/layers/GraphicsLayer",
+        "esri/renderers/HeatmapRenderer",
+        "esri/geometry/Extent"
+      ], function (G, P, PL, GL, HR, EX) {
+
         Graphic = G;
         Point = P;
         Polyline = PL;
         GraphicsLayer = GL;
+        HeatmapRenderer = HR;
+        Extent = EX;
 
         incidentLayer = new GraphicsLayer();
         ambulanceLayer = new GraphicsLayer();
-        linkLayer = new GraphicsLayer();
         routeLayer = new GraphicsLayer();
+        trailsLayer = new GraphicsLayer();
 
-        view.map.addMany([routeLayer, linkLayer, incidentLayer, ambulanceLayer]);
+        heatmapLayer = new GraphicsLayer({
+          renderer: new HeatmapRenderer({
+            radius: 25,
+            colorStops: [
+              { ratio: 0, color: "rgba(0,0,255,0)" },
+              { ratio: 0.4, color: "yellow" },
+              { ratio: 0.7, color: "orange" },
+              { ratio: 1, color: "red" }
+            ]
+          })
+        });
+
+        view.map.addMany([
+          heatmapLayer,
+          routeLayer,
+          incidentLayer,
+          trailsLayer,
+          ambulanceLayer
+        ]);
 
         ready = true;
         setStatus("Map ready", true);
 
-        window.parent?.postMessage({ type: "MAP_READY" }, "*");
+        window.parent.postMessage({ type: "MAP_READY" }, "*");
+
+        // Route switcher change handler
+        document.getElementById("routeSelect").addEventListener("change", function (e) {
+          const id = e.target.value;
+          const layer = routeLayers.get(id);
+          if (!layer) return;
+          const g = layer.graphics.items[0];
+          if (g && g.geometry) {
+            const paths = g.geometry.paths && g.geometry.paths[0];
+            if (paths) focusOnRoute(paths);
+          }
+        });
       });
     });
 
-    /* ============================
-       Message handling
-    ============================ */
-    window.addEventListener("message", (event) => {
-      if (!ready) return;
+    window.addEventListener("message", function (event) {
+      if (!ready || !event.data) return;
 
-      const { type, incidents, ambulances, simulationRoute } = event.data || {};
+      const data = event.data;
+      console.log("Received message:", data);
+      if (data.type === "UPDATE_DATA") {
+        lastState.incidents = Array.isArray(data.incidents) ? data.incidents : lastState.incidents;
+        lastState.ambulances = Array.isArray(data.ambulances) ? data.ambulances : lastState.ambulances;
+        if (Array.isArray(data.incidents)) {
+          renderIncidents(data.incidents);
+          renderHeatmap(data.incidents);
+        }
 
-      if (type === "UPDATE_DATA") {
-        if (Array.isArray(incidents)) renderIncidents(incidents);
-        if (Array.isArray(ambulances)) renderAmbulances(ambulances);
-        if (simulationRoute !== undefined) renderSimulationRoute(simulationRoute);
+        if (Array.isArray(data.ambulances)) {
+          renderAmbulances(data.ambulances);
+        }
+
+        // Multiple simulation plans support
+        if (Array.isArray(data.simulationPlans)) {
+          lastState.simulationPlans = data.simulationPlans;
+          renderSimulationPlans(data.simulationPlans, data.ambulances || []);
+        } else if (data.simulationRoute !== undefined) {
+          renderSimulationRoute(data.simulationRoute, data.simulationStats);
+        }
+
+        // Auto-center only once initially
+        if (!didInitialCenter) {
+          autoCenter(data.incidents || [], data.ambulances || []);
+          didInitialCenter = true;
+        }
+      } else if (data.type === 'FOLLOW') {
+        try {
+          const incId = data.incidentId;
+          const incidents = lastState.incidents || [];
+          const ambs = lastState.ambulances || [];
+          const inc = incidents.find(i => i._id === incId);
+          const ambId = inc && inc.assignedAmbulance ? inc.assignedAmbulance : data.ambulanceId;
+          followAmbulanceId = ambId || null;
+
+          // Try to focus the existing route for this ambulance id
+          if (ambId && routeLayers.has(ambId)) {
+            const layer = routeLayers.get(ambId);
+            const g = layer.graphics.items[0];
+            const paths = g && g.geometry && g.geometry.paths && g.geometry.paths[0];
+            if (paths) focusOnRoute(paths);
+            return;
+          }
+
+          // Fallback: focus on ambulance marker and incident point
+          const ambGraphic = ambId ? ambulanceGraphics.get(ambId) : null;
+          const incPoint = inc ? createPoint(extractLonLat(inc)) : null;
+          const targets = [];
+          if (ambGraphic && ambGraphic.geometry) targets.push(ambGraphic.geometry);
+          if (incPoint) targets.push(incPoint);
+          if (targets.length > 0) {
+            view.goTo(targets, { duration: 600 }).catch(() => {});
+          }
+        } catch (e) {
+          console.warn('Failed to follow incident/ambulance', e);
+        }
       }
     });
   </script>
 
 </body>
-
 </html>

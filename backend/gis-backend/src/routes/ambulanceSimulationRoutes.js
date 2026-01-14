@@ -5,9 +5,9 @@ const router = express.Router();
 
 // Start simulation
 router.post("/startSimulation", (req, res) => {
-  const { ambulances, speed } = req.body;
+  const { ambulances, speed, tickMs } = req.body;
   simulationService.setAmbulances(ambulances);
-  simulationService.start(speed);
+  simulationService.start(speed, tickMs);
   res.json({ success: true });
 });
 

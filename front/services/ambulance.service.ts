@@ -38,4 +38,9 @@ export const ambulanceService = {
   async delete(id: string): Promise<void> {
     await api.delete(`/api/ambulances/${id}`)
   },
+
+  async getMyAmbulance(): Promise<Ambulance> {
+    const { data } = await api.get('/api/ambulances/my-ambulance')
+    return data
+  },
 }

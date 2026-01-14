@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Pick Location</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://js.arcgis.com/4.34/"></script>
+  <style>
+    html, body, #viewDiv { height: 100%; width: 100%; margin: 0; padding: 0; }
+    #info { position: absolute; bottom: 12px; right: 12px; z-index: 99; background: white; padding: 8px 10px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.15); font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div id="viewDiv"></div>
+  <div id="info">Click on map to set position</div>
+  <script>
+    let EsriMap, EsriMapView, Graphic, Point;
+    let view, marker;
+
+    require(["esri/Map", "esri/views/MapView", "esri/Graphic", "esri/geometry/Point"], function(M, MV, G, P) {
+      EsriMap = M; EsriMapView = MV; Graphic = G; Point = P;
+      const map = new EsriMap({ basemap: 'streets-navigation-vector' });
+      view = new EsriMapView({ container: 'viewDiv', map, center: [10.1658, 36.8190], zoom: 12 });
+
+      view.when(function() {
+        window.parent.postMessage({ type: 'MAP_READY' }, '*');
+
+        view.on('click', function(evt) {
+          const lon = Number(evt.mapPoint.longitude);
+          const lat = Number(evt.mapPoint.latitude);
+          placeMarker(lon, lat);
+          updateInfo(lat, lon);
+          window.parent.postMessage({ type: 'PICK_COORD', coord: { latitude: lat, longitude: lon } }, '*');
+        });
+      });
+    });
+
+    function placeMarker(lon, lat) {
+      if (!Graphic || !Point || !view) return;
+      const pt = new Point({ longitude: lon, latitude: lat });
+      if (marker) { view.graphics.remove(marker); marker = null; }
+      marker = new Graphic({
+        geometry: pt,
+        symbol: { type: 'simple-marker', color: [59,130,246,0.95], size: 12, outline: { color: [255,255,255], width: 2 } }
+      });
+      view.graphics.add(marker);
+    }
+
+    function updateInfo(lat, lon) {
+      const el = document.getElementById('info');
+      el.textContent = `Lat: ${lat.toFixed(5)} | Lng: ${lon.toFixed(5)}`;
+    }
+
+    window.addEventListener('message', function(event) {
+      const data = event.data || {};
+      if (data.type === 'INIT_PICK' && data.coord) {
+        const { latitude, longitude } = data.coord;
+        if (typeof latitude === 'number' && typeof longitude === 'number') {
+          placeMarker(Number(longitude), Number(latitude));
+          updateInfo(Number(latitude), Number(longitude));
+          view.goTo({ center: [Number(longitude), Number(latitude)], zoom: 14 }, { duration: 400 });
+        }
+      }
+      if (data.type === 'SET_COORD' && data.coord) {
+        const { latitude, longitude } = data.coord;
+        if (typeof latitude === 'number' && typeof longitude === 'number') {
+          placeMarker(Number(longitude), Number(latitude));
+          updateInfo(Number(latitude), Number(longitude));
+        }
+      }
+      if (data.type === 'SET_CENTER' && data.coord) {
+        const { latitude, longitude } = data.coord;
+        if (typeof latitude === 'number' && typeof longitude === 'number') {
+          view.goTo({ center: [Number(longitude), Number(latitude)], zoom: 14 }, { duration: 400 });
+        }
+      }
+      if (data.type === 'CLEAR') {
+        try { if (marker) { view.graphics.remove(marker); marker = null; } } catch {}
+        document.getElementById('info').textContent = 'Click on map to set position';
+      }
+      if (data.type === 'LOCATE') {
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(function(pos) {
+            const lat = Number(pos.coords.latitude);
+            const lon = Number(pos.coords.longitude);
+            placeMarker(lon, lat);
+            updateInfo(lat, lon);
+            view.goTo({ center: [lon, lat], zoom: 15 }, { duration: 400 });
+            window.parent.postMessage({ type: 'PICK_COORD', coord: { latitude: lat, longitude: lon } }, '*');
+          });
+        }
+      }
+    });
+  </script>
+</body>
+</html>

@@ -8,6 +8,7 @@ import { adminService } from '@/services/admin.service'
 import { Ambulance, User } from '@/types'
 import { StatusBadge } from '@/components/Badge'
 import Modal from '@/components/Modal'
+import MapPicker from '@/components/MapPicker'
 import toast from 'react-hot-toast'
 import { PlusIcon, MapPinIcon, PencilIcon, TrashIcon } from '@heroicons/react/24/outline'
 
@@ -26,6 +27,8 @@ export default function AmbulancesPage() {
     longitude: '',
     driver: '',
   })
+  const [createPickCoord, setCreatePickCoord] = useState<{ latitude: number; longitude: number } | null>(null)
+  const [editPickCoord, setEditPickCoord] = useState<{ latitude: number; longitude: number } | null>(null)
 
   useEffect(() => {
     if (!authLoading) {
@@ -52,8 +55,13 @@ export default function AmbulancesPage() {
       // Backend returns { users, totalPages, currentPage, total }
       const allDriversList = (response as any).users || []
       setAllDrivers(allDriversList)
-      // Filter to show only drivers without assigned ambulances
-      const availableDrivers = allDriversList.filter((driver: User) => !driver.assignedAmbulance)
+      // Compute drivers currently assigned to any ambulance
+      const assignedDriverIds = new Set<string>(
+        ambulances
+          .map((a) => (typeof a.driver === 'string' ? a.driver : a.driver?._id))
+          .filter((id): id is string => Boolean(id))
+      )
+      const availableDrivers = allDriversList.filter((driver: User) => !assignedDriverIds.has(driver._id))
       setDrivers(availableDrivers)
     } catch (error) {
       console.error('Failed to fetch drivers:', error)
@@ -62,6 +70,17 @@ export default function AmbulancesPage() {
     }
   }
 
+  // Recompute available drivers if ambulances or allDrivers change
+  useEffect(() => {
+    const assignedDriverIds = new Set<string>(
+      ambulances
+        .map((a) => (typeof a.driver === 'string' ? a.driver : a.driver?._id))
+        .filter((id): id is string => Boolean(id))
+    )
+    const availableDrivers = allDrivers.filter((driver: User) => !assignedDriverIds.has(driver._id))
+    setDrivers(availableDrivers)
+  }, [ambulances, allDrivers])
+
   const handleCreateAmbulance = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
@@ -69,7 +88,10 @@ export default function AmbulancesPage() {
         plateNumber: formData.plateNumber,
         location: {
           type: 'Point',
-          coordinates: [parseFloat(formData.longitude), parseFloat(formData.latitude)],
+          coordinates: [
+            parseFloat(formData.longitude || String(createPickCoord?.longitude || '')),
+            parseFloat(formData.latitude || String(createPickCoord?.latitude || '')),
+          ],
         },
       }
       
@@ -81,6 +103,7 @@ export default function AmbulancesPage() {
       toast.success('Ambulance created successfully')
       setIsCreateModalOpen(false)
       setFormData({ plateNumber: '', latitude: '', longitude: '', driver: '' })
+      setCreatePickCoord(null)
       fetchAmbulances()
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Failed to create ambulance')
@@ -154,6 +177,7 @@ export default function AmbulancesPage() {
       longitude: ambulance.location.coordinates[0].toString(),
       driver: driverId,
     })
+    setEditPickCoord({ latitude: ambulance.location.coordinates[1], longitude: ambulance.location.coordinates[0] })
     setIsEditModalOpen(true)
   }
 
@@ -282,30 +306,43 @@ export default function AmbulancesPage() {
               onChange={(e) => setFormData({ ...formData, plateNumber: e.target.value })}
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Latitude</label>
-              <input
-                type="number"
-                step="any"
-                required
-                className="input-field"
-                placeholder="36.8065"
-                value={formData.latitude}
-                onChange={(e) => setFormData({ ...formData, latitude: e.target.value })}
+              <label className="block text-sm font-medium text-gray-700 mb-1">Pick Current Position</label>
+              <MapPicker
+                value={createPickCoord}
+                onChange={(coord) => {
+                  setCreatePickCoord(coord)
+                  setFormData({ ...formData, latitude: String(coord.latitude), longitude: String(coord.longitude) })
+                }}
+                height={240}
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Longitude</label>
-              <input
-                type="number"
-                step="any"
-                required
-                className="input-field"
-                placeholder="10.1815"
-                value={formData.longitude}
-                onChange={(e) => setFormData({ ...formData, longitude: e.target.value })}
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Latitude</label>
+                <input
+                  type="number"
+                  step="any"
+                  required
+                  className="input-field"
+                  placeholder="36.8065"
+                  value={formData.latitude}
+                  onChange={(e) => setFormData({ ...formData, latitude: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Longitude</label>
+                <input
+                  type="number"
+                  step="any"
+                  required
+                  className="input-field"
+                  placeholder="10.1815"
+                  value={formData.longitude}
+                  onChange={(e) => setFormData({ ...formData, longitude: e.target.value })}
+                />
+              </div>
             </div>
           </div>
           {user?.role === 'admin' && (
@@ -357,28 +394,41 @@ export default function AmbulancesPage() {
               onChange={(e) => setFormData({ ...formData, plateNumber: e.target.value })}
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Latitude</label>
-              <input
-                type="number"
-                step="any"
-                className="input-field"
-                placeholder="36.8065"
-                value={formData.latitude}
-                onChange={(e) => setFormData({ ...formData, latitude: e.target.value })}
+              <label className="block text-sm font-medium text-gray-700 mb-1">Adjust Position</label>
+              <MapPicker
+                value={editPickCoord}
+                onChange={(coord) => {
+                  setEditPickCoord(coord)
+                  setFormData({ ...formData, latitude: String(coord.latitude), longitude: String(coord.longitude) })
+                }}
+                height={240}
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Longitude</label>
-              <input
-                type="number"
-                step="any"
-                className="input-field"
-                placeholder="10.1815"
-                value={formData.longitude}
-                onChange={(e) => setFormData({ ...formData, longitude: e.target.value })}
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Latitude</label>
+                <input
+                  type="number"
+                  step="any"
+                  className="input-field"
+                  placeholder="36.8065"
+                  value={formData.latitude}
+                  onChange={(e) => setFormData({ ...formData, latitude: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Longitude</label>
+                <input
+                  type="number"
+                  step="any"
+                  className="input-field"
+                  placeholder="10.1815"
+                  value={formData.longitude}
+                  onChange={(e) => setFormData({ ...formData, longitude: e.target.value })}
+                />
+              </div>
             </div>
           </div>
           {user?.role === 'admin' && (
@@ -394,18 +444,20 @@ export default function AmbulancesPage() {
                 <option value="">No Driver</option>
                 {/* Show available drivers plus the currently assigned driver */}
                 {allDrivers
-                  .filter((driver) => 
-                    !driver.assignedAmbulance || 
-                    driver._id === formData.driver ||
-                    (selectedAmbulance?.driver && 
-                      driver._id === (typeof selectedAmbulance.driver === 'string' 
-                        ? selectedAmbulance.driver 
-                        : selectedAmbulance.driver._id))
-                  )
+                  .filter((driver) => {
+                    const assignedDriverIds = new Set<string>(
+                      ambulances
+                        .map((a) => (typeof a.driver === 'string' ? a.driver : a.driver?._id))
+                        .filter((id): id is string => Boolean(id))
+                    )
+                    const currentDriverId = selectedAmbulance
+                      ? (typeof selectedAmbulance.driver === 'string' ? selectedAmbulance.driver : selectedAmbulance.driver?._id)
+                      : undefined
+                    return !assignedDriverIds.has(driver._id) || driver._id === formData.driver || driver._id === currentDriverId
+                  })
                   .map((driver) => (
                     <option key={driver._id} value={driver._id}>
                       {driver.name} ({driver.email})
-                      {driver.assignedAmbulance && driver._id !== formData.driver ? ' - Assigned' : ''}
                     </option>
                   ))
                 }
