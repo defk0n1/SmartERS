@@ -59,8 +59,8 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                           FRONTEND LAYER                                     │
-│  React/Vue/Angular + ArcGIS Maps SDK for JavaScript + Socket.IO Client      │
+│                           FRONTEND LAYER                                    │
+│  NextJS + ArcGIS Maps SDK for JavaScript + Socket.IO Client                 │
 └──────────────────────────────────┬──────────────────────────────────────────┘
                                    │
                     ┌──────────────┴───────────────┐
